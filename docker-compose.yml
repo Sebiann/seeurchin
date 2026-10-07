@@ -9,6 +9,9 @@ services:
     container_name: seeurchin
     environment:
       - TZ=America/Chicago
+      # Host user/group that should own ./config/seeurchin (see `id -u` / `id -g`).
+      - PUID=1000
+      - PGID=1000
       # Reachable Jellyfin URL (use the service name on a shared docker network).
       - JELLYFIN_URL=${JELLYFIN_URL:-http://jellyfin:8096}
       # Jellyfin Dashboard -> API Keys.

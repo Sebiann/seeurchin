@@ -49,6 +49,12 @@ type Config struct {
 	// (cascading to their participants/nominations/votes). 0 (the default) keeps
 	// poll history forever.
 	PollRetentionDays int
+
+	// PUID / PGID, when set (>= 0) and the process starts as root, are the
+	// user and group the server drops privileges to after taking ownership of
+	// the database directory. -1 = unset. Setting only one uses it for both.
+	PUID int
+	PGID int
 }
 
 // AdminEnabled reports whether the admin dashboard is configured. It requires
@@ -102,6 +108,8 @@ func FromEnv() (Config, error) {
 		AdminUsers:               envList("SEEURCHIN_ADMIN_USERS"),
 		AdminAllowJellyfinAdmins: envBool("SEEURCHIN_ADMIN_JELLYFIN_ADMINS", false),
 		PollRetentionDays:        envInt("SEEURCHIN_POLL_RETENTION_DAYS", 0),
+		PUID:                     envInt("PUID", -1),
+		PGID:                     envInt("PGID", -1),
 		Jellyfin: JellyfinConfig{
 			URL:    strings.TrimRight(os.Getenv("JELLYFIN_URL"), "/"),
 			APIKey: os.Getenv("JELLYFIN_API_KEY"),
@@ -116,6 +124,13 @@ func FromEnv() (Config, error) {
 			ServerID:        envInt("SEERR_SERVER_ID", -1),
 			RequestUserID:   envInt("SEERR_USER_ID", -1),
 		},
+	}
+
+	if c.PUID < 0 {
+		c.PUID = c.PGID
+	}
+	if c.PGID < 0 {
+		c.PGID = c.PUID
 	}
 
 	if c.Jellyfin.URL == "" {

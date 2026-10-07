@@ -142,6 +142,8 @@ through your reverse proxy / Cloudflare tunnel:
     init: true
     environment:
       - TZ=America/Chicago
+      - PUID=1000                    # host user/group that owns ./config/seeurchin
+      - PGID=1000
       - JELLYFIN_URL=http://jellyfin:8096
       - JELLYFIN_API_KEY=<dashboard API key>
       - SEEURCHIN_BASE_URL=https://vote.example.com   # your public tunnel hostname
@@ -197,6 +199,7 @@ All configuration is via environment variables.
 | `SEEURCHIN_ADMIN_USERS` | no | — | Comma-separated Jellyfin usernames (case-insensitive) allowed into the admin dashboard at `/admin`. Requires `SEEURCHIN_ENABLE_USER_LOGIN=true`. |
 | `SEEURCHIN_ADMIN_JELLYFIN_ADMINS` | no | `false` | Also grant admin access to any account flagged as a Jellyfin administrator. Requires `SEEURCHIN_ENABLE_USER_LOGIN=true`. |
 | `SEEURCHIN_POLL_RETENTION_DAYS` | no | `0` | Auto-delete polls this many days after they close (cascading to their participants/nominations/votes). `0` (default) keeps history forever. |
+| `PUID` / `PGID` | no | — | When started as root (the Docker default), take ownership of the database directory/files and drop to this user/group, so files in a mounted volume are owned by your host user. Setting only one uses it for both. Unset = run as the container user. |
 | `SEERR_URL` | no | — | Seerr/Overseerr/Jellyseerr base URL, e.g. `http://seerr:5055`. Set with `SEERR_API_KEY` to enable write-in nominations + winner auto-request. |
 | `SEERR_API_KEY` | no | — | Seerr API key (Settings → General → API Key). Use a dedicated account whose default profile is what you want requested; grant it auto-approve to have winners download without manual approval. |
 | `SEERR_USER_ID` | no | API key owner | Seerr user id to attribute requests to (e.g. a dedicated "movie night" account), using that user's defaults. |
