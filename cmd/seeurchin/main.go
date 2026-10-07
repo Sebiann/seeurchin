@@ -51,6 +51,10 @@ func main() {
 		log.Printf("warning: SEEURCHIN_SESSION_SECRET not set; using an ephemeral secret (sessions reset on restart)")
 	}
 
+	if err := dropPrivileges(cfg); err != nil {
+		log.Fatalf("drop privileges: %v", err)
+	}
+
 	st, err := store.Open(cfg.DBPath)
 	if err != nil {
 		log.Fatalf("open database %q: %v", cfg.DBPath, err)

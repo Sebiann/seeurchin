@@ -15,6 +15,8 @@ services:
     container_name: seeurchin
     environment:
       - TZ=America/Chicago
+      - PUID=1000
+      - PGID=1000
       - JELLYFIN_URL=${JELLYFIN_URL:-http://jellyfin:8096}
       - JELLYFIN_API_KEY=${JELLYFIN_API_KEY:?set JELLYFIN_API_KEY}
       - SEEURCHIN_BASE_URL=${SEEURCHIN_BASE_URL:-http://localhost:5858}
