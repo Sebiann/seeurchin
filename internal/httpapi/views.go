@@ -43,6 +43,7 @@ type pollView struct {
 	AutoRequestWinner bool                 `json:"auto_request_winner"`
 	PasscodeRequired  bool                 `json:"passcode_required"`
 	SeerrEnabled      bool                 `json:"seerr_enabled"`
+	LoginEnabled      bool                 `json:"login_enabled"`
 	ParticipantCount  int                  `json:"participant_count"`
 	VoterCount        int                  `json:"voter_count"`
 	Participants      []participantView    `json:"participants"`
@@ -71,7 +72,9 @@ type nominationView struct {
 }
 
 type participantView struct {
+	ID          string `json:"id"`
 	DisplayName string `json:"display_name"`
+	Linked      bool   `json:"linked"` // tied to a Jellyfin account
 	IsHost      bool   `json:"is_host"`
 	HasVoted    bool   `json:"has_voted"`
 }
@@ -82,6 +85,7 @@ type meView struct {
 	IsHost          bool           `json:"is_host"`
 	NominationCount int            `json:"nomination_count"`
 	HasVoted        bool           `json:"has_voted"`
+	Linked          bool           `json:"linked"`
 	MySelections    map[string]int `json:"my_selections"`
 }
 
@@ -145,6 +149,7 @@ func (s *Server) buildPollView(ctx context.Context, p *poll.Poll, me *poll.Parti
 		AutoRequestWinner: p.AutoRequestWinner,
 		PasscodeRequired:  p.PasscodeHash != "",
 		SeerrEnabled:      s.seerrEnabled(),
+		LoginEnabled:      s.cfg.EnableUserLogin,
 		ParticipantCount:  len(participants),
 		VoterCount:        voterCount,
 		ShareURL:          s.cfg.BaseURL + "/p/" + p.Code,
@@ -159,7 +164,7 @@ func (s *Server) buildPollView(ctx context.Context, p *poll.Poll, me *poll.Parti
 			if err != nil {
 				return pollView{}, err
 			}
-			view.Participants = append(view.Participants, participantView{DisplayName: pt.DisplayName, IsHost: pt.IsHost(), HasVoted: voted})
+			view.Participants = append(view.Participants, participantView{ID: pt.ID, DisplayName: pt.DisplayName, Linked: pt.JellyfinUserID != "", IsHost: pt.IsHost(), HasVoted: voted})
 		}
 	}
 
@@ -205,6 +210,7 @@ func (s *Server) buildPollView(ctx context.Context, p *poll.Poll, me *poll.Parti
 			IsHost:          me.IsHost(),
 			NominationCount: count,
 			HasVoted:        voted,
+			Linked:          me.JellyfinUserID != "",
 		}
 		if p.Status == poll.StatusRound2 || p.Status == poll.StatusClosed {
 			votes, err := s.repo.ListVotes(ctx, p.ID)

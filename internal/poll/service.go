@@ -363,6 +363,159 @@ func (s *Service) JoinAsGuest(ctx context.Context, p *Poll, displayName string) 
 	return part, nil
 }
 
+// MergeDuplicateNames folds participants that share an exact display name into
+// one, for people who rejoined from another device. The survivor is the host,
+// else the one linked to Jellyfin, else whoever cast the newest ballot, else the
+// newest joiner; only the newest ballot in each group is kept so nobody votes
+// twice. Groups linked to two different Jellyfin accounts are different people
+// and are left alone. Host only.
+func (s *Service) MergeDuplicateNames(ctx context.Context, p *Poll, participant *Participant) error {
+	if !participant.IsHost() {
+		return errForbid("only the host can merge people")
+	}
+	if p.Status == StatusClosed {
+		return errConflict("this poll has ended")
+	}
+	parts, err := s.repo.ListParticipants(ctx, p.ID)
+	if err != nil {
+		return err
+	}
+	ballotAt, err := s.ballotTimes(ctx, p)
+	if err != nil {
+		return err
+	}
+	groups := map[string][]Participant{}
+	for _, pt := range parts {
+		groups[pt.DisplayName] = append(groups[pt.DisplayName], pt)
+	}
+	for _, g := range groups {
+		if len(g) < 2 {
+			continue
+		}
+		var host, linked, newestJoin, newestBallot *Participant
+		accounts := map[string]bool{}
+		for i := range g {
+			pt := &g[i]
+			if pt.IsHost() {
+				host = pt
+			}
+			if pt.JellyfinUserID != "" {
+				linked = pt
+				accounts[pt.JellyfinUserID] = true
+			}
+			if newestJoin == nil || pt.CreatedAt.After(newestJoin.CreatedAt) {
+				newestJoin = pt
+			}
+			if at, ok := ballotAt[pt.ID]; ok && (newestBallot == nil || at.After(ballotAt[newestBallot.ID])) {
+				newestBallot = pt
+			}
+		}
+		if len(accounts) > 1 {
+			continue
+		}
+		keep := host
+		for _, c := range []*Participant{linked, newestBallot, newestJoin} {
+			if keep == nil {
+				keep = c
+			}
+		}
+		if err := s.mergeGroup(ctx, p, keep, g, ballotAt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ballotTimes maps each participant who voted to when they cast their ballot.
+func (s *Service) ballotTimes(ctx context.Context, p *Poll) (map[string]time.Time, error) {
+	votes, err := s.repo.ListVotes(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	at := map[string]time.Time{}
+	for _, v := range votes {
+		if v.CreatedAt.After(at[v.ParticipantID]) {
+			at[v.ParticipantID] = v.CreatedAt
+		}
+	}
+	return at, nil
+}
+
+// mergeGroup folds every participant in group into keep, keeping only the
+// group's newest ballot.
+func (s *Service) mergeGroup(ctx context.Context, p *Poll, keep *Participant, group []Participant, ballotAt map[string]time.Time) error {
+	var drop []string
+	ballotFrom := ""
+	for _, pt := range group {
+		if pt.ID != keep.ID {
+			drop = append(drop, pt.ID)
+		}
+		if at, ok := ballotAt[pt.ID]; ok && (ballotFrom == "" || at.After(ballotAt[ballotFrom])) {
+			ballotFrom = pt.ID
+		}
+	}
+	return s.repo.MergeParticipants(ctx, p.ID, keep.ID, ballotFrom, drop)
+}
+
+// LinkJellyfin ties target to a Jellyfin account so signing in on any device
+// lands on this entry. If another entry in the poll is already linked to that
+// account, target is merged into it. It returns the participant the caller's
+// browser should now use. allowRelink lets the host move an already-linked
+// entry to a different account; a self-link can't.
+func (s *Service) LinkJellyfin(ctx context.Context, p *Poll, target *Participant, uid string, allowRelink bool) (*Participant, error) {
+	if uid == "" {
+		return nil, errBad("a Jellyfin account is required")
+	}
+	if target.JellyfinUserID == uid {
+		return target, nil
+	}
+	if target.JellyfinUserID != "" && !allowRelink {
+		return nil, errConflict("you're already linked to another Jellyfin account")
+	}
+	existing, err := s.repo.GetParticipantByJellyfinUser(ctx, p.ID, uid)
+	if errors.Is(err, ErrNotFound) {
+		if err := s.repo.SetParticipantJellyfinUser(ctx, target.ID, uid); err != nil {
+			return nil, err
+		}
+		target.JellyfinUserID = uid
+		return target, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if target.IsHost() {
+		return nil, errConflict("that Jellyfin account is already linked to someone else in this poll")
+	}
+	ballotAt, err := s.ballotTimes(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.mergeGroup(ctx, p, existing, []Participant{*existing, *target}, ballotAt); err != nil {
+		return nil, err
+	}
+	return existing, nil
+}
+
+// HostLinkJellyfin lets the host link any participant to a Jellyfin account
+// (the caller has already checked the account exists).
+func (s *Service) HostLinkJellyfin(ctx context.Context, p *Poll, host *Participant, targetID, uid string) error {
+	if !host.IsHost() {
+		return errForbid("only the host can link people")
+	}
+	if p.Status == StatusClosed {
+		return errConflict("this poll has ended")
+	}
+	target, err := s.repo.GetParticipant(ctx, targetID)
+	if errors.Is(err, ErrNotFound) || (err == nil && target.PollID != p.ID) {
+		return &Error{Code: 404, Msg: "participant not found"}
+	}
+	if err != nil {
+		return err
+	}
+	_, err = s.LinkJellyfin(ctx, p, target, uid, true)
+	return err
+}
+
 // SubmitNomination resolves the item, enforces scope and the per-participant
 // max, and records the nomination.
 func (s *Service) SubmitNomination(ctx context.Context, p *Poll, participant *Participant, itemID string) (*Nomination, error) {

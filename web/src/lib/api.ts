@@ -56,6 +56,12 @@ export const api = {
 	withdraw: (code: string, id: string) =>
 		req<PollView>('DELETE', `/api/polls/${code}/nominations/${id}`),
 	advance: (code: string) => req<PollView>('POST', `/api/polls/${code}/advance`),
+	link: (code: string) => req<PollView>('POST', `/api/polls/${code}/link`),
+	jellyfinUsers: (code: string) =>
+		req<{ id: string; name: string }[]>('GET', `/api/polls/${code}/jellyfin-users`),
+	hostLink: (code: string, participantId: string, jellyfin_user_id: string) =>
+		req<PollView>('POST', `/api/polls/${code}/participants/${participantId}/link`, { jellyfin_user_id }),
+	mergeDuplicates: (code: string) => req<PollView>('POST', `/api/polls/${code}/merge-duplicates`),
 	breakTie: (code: string) => req<PollView>('POST', `/api/polls/${code}/tiebreak`),
 	startTimer: (code: string) => req<PollView>('POST', `/api/polls/${code}/timer/start`),
 	pauseTimer: (code: string) => req<PollView>('POST', `/api/polls/${code}/timer/pause`),

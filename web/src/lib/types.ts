@@ -12,6 +12,7 @@ export interface MeView {
 	is_host: boolean;
 	nomination_count: number;
 	has_voted: boolean;
+	linked: boolean; // tied to a Jellyfin account
 	my_selections: Record<string, number> | null;
 }
 
@@ -96,9 +97,10 @@ export interface PollView {
 	auto_request_winner: boolean;
 	passcode_required: boolean;
 	seerr_enabled: boolean;
+	login_enabled: boolean;
 	participant_count: number;
 	voter_count: number;
-	participants: { display_name: string; is_host: boolean; has_voted: boolean }[]; // empty until you've joined
+	participants: { id: string; display_name: string; is_host: boolean; has_voted: boolean; linked: boolean }[]; // empty until you've joined
 	nominations: NominationView[];
 	me: MeView | null;
 	results?: ResultsView;

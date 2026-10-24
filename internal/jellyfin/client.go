@@ -116,6 +116,34 @@ func (c *Client) AuthenticateByName(ctx context.Context, username, password stri
 	}, nil
 }
 
+// User is a Jellyfin account, as offered to a poll host for linking.
+type User struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// ListUsers returns every enabled Jellyfin account (hidden ones included) via
+// GET /Users with the server API key.
+func (c *Client) ListUsers(ctx context.Context) ([]User, error) {
+	var raw []struct {
+		ID     string `json:"Id"`
+		Name   string `json:"Name"`
+		Policy struct {
+			IsDisabled bool `json:"IsDisabled"`
+		} `json:"Policy"`
+	}
+	if err := c.getJSON(ctx, "/Users", nil, &raw); err != nil {
+		return nil, err
+	}
+	out := make([]User, 0, len(raw))
+	for _, u := range raw {
+		if !u.Policy.IsDisabled {
+			out = append(out, User{ID: u.ID, Name: u.Name})
+		}
+	}
+	return out, nil
+}
+
 // Item is a movie or series from the Jellyfin library.
 type Item struct {
 	ID              string            `json:"Id"`

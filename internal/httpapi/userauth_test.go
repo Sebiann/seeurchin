@@ -21,10 +21,18 @@ type jellyMockUser struct {
 }
 
 // newJellyfinMock stands up a fake Jellyfin server handling
-// POST /Users/AuthenticateByName for the given users.
+// POST /Users/AuthenticateByName and GET /Users for the given users.
 func newJellyfinMock(t *testing.T, users ...jellyMockUser) *httptest.Server {
 	t.Helper()
 	m := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/Users" {
+			var list []map[string]any
+			for _, u := range users {
+				list = append(list, map[string]any{"Id": u.id, "Name": u.name})
+			}
+			_ = json.NewEncoder(w).Encode(list)
+			return
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/Users/AuthenticateByName" {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -147,5 +155,74 @@ func TestPerPollPasscode(t *testing.T) {
 	}
 	if code := do(t, guest, http.MethodPost, ts.URL+"/api/polls/"+created.Code+"/join", map[string]string{"display_name": "Bob", "passcode": "swordfish"}, nil); code != http.StatusOK {
 		t.Fatalf("join correct passcode = %d, want 200", code)
+	}
+}
+
+func TestJellyfinLinking(t *testing.T) {
+	jf := newJellyfinMock(t,
+		jellyMockUser{id: "u-alice", name: "alice", pw: "pw"},
+		jellyMockUser{id: "u-bob", name: "bob", pw: "pw"},
+		jellyMockUser{id: "u-carl", name: "carl", pw: "pw"},
+	)
+	ts := newAuthServer(t, config.Config{EnableUserLogin: true}, jf.URL)
+	login := func(c *http.Client, name string) {
+		t.Helper()
+		if code := do(t, c, http.MethodPost, ts.URL+"/api/user/login", map[string]string{"username": name, "password": "pw"}, nil); code != http.StatusOK {
+			t.Fatalf("login %s = %d", name, code)
+		}
+	}
+
+	host := newClient(t)
+	login(host, "alice")
+	var v pollView
+	do(t, host, http.MethodPost, ts.URL+"/api/polls", map[string]any{
+		"title": "Movie Night", "library_scope": "movie", "voting_method": "approval", "allow_guests": true,
+	}, &v)
+	base := ts.URL + "/api/polls/" + v.Code
+
+	// A guest joins without signing in, then links their account.
+	phone := newClient(t)
+	do(t, phone, http.MethodPost, base+"/join", map[string]string{"display_name": "Bob"}, &v)
+	bobID := v.Me.ID
+	if code := do(t, phone, http.MethodPost, base+"/link", nil, nil); code != http.StatusUnauthorized {
+		t.Fatalf("link before sign-in = %d, want 401", code)
+	}
+	login(phone, "bob")
+	do(t, phone, http.MethodPost, base+"/link", nil, &v)
+	if !v.Me.Linked || v.Me.ID != bobID {
+		t.Fatalf("after link me = %+v, want linked %s", v.Me, bobID)
+	}
+
+	// Signing in on a new device lands on the same entry with no join.
+	laptop := newClient(t)
+	login(laptop, "bob")
+	do(t, laptop, http.MethodGet, base, nil, &v)
+	if v.Me == nil || v.Me.ID != bobID {
+		t.Fatalf("new device me = %+v, want %s", v.Me, bobID)
+	}
+
+	// The host links another guest by hand; only real accounts are accepted.
+	carl := newClient(t)
+	do(t, carl, http.MethodPost, base+"/join", map[string]string{"display_name": "Carl"}, &v)
+	carlID := v.Me.ID
+	if code := do(t, carl, http.MethodGet, base+"/jellyfin-users", nil, nil); code != http.StatusForbidden {
+		t.Fatalf("guest listing users = %d, want 403", code)
+	}
+	var users []jellyfin.User
+	do(t, host, http.MethodGet, base+"/jellyfin-users", nil, &users)
+	if len(users) != 3 {
+		t.Fatalf("users = %+v, want 3", users)
+	}
+	if code := do(t, host, http.MethodPost, base+"/participants/"+carlID+"/link", map[string]string{"jellyfin_user_id": "made-up"}, nil); code != http.StatusBadRequest {
+		t.Fatalf("link unknown account = %d, want 400", code)
+	}
+	if code := do(t, host, http.MethodPost, base+"/participants/"+carlID+"/link", map[string]string{"jellyfin_user_id": "u-carl"}, &v); code != http.StatusOK {
+		t.Fatalf("host link = %d", code)
+	}
+	carl2 := newClient(t)
+	login(carl2, "carl")
+	do(t, carl2, http.MethodGet, base, nil, &v)
+	if v.Me == nil || v.Me.ID != carlID {
+		t.Fatalf("carl on new device me = %+v, want %s", v.Me, carlID)
 	}
 }

@@ -172,3 +172,23 @@ func TestSearchSendsModernHeaderAndParses(t *testing.T) {
 		t.Errorf("runtime = %d min, want 136", it.RuntimeMinutes())
 	}
 }
+
+func TestListUsersSkipsDisabled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/Users" {
+			t.Errorf("unexpected request %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{"Id": "u1", "Name": "Alice", "Policy": map[string]any{"IsDisabled": false}},
+			{"Id": "u2", "Name": "Old", "Policy": map[string]any{"IsDisabled": true}},
+		})
+	}))
+	defer srv.Close()
+	users, err := New(srv.URL, "k").ListUsers(context.Background())
+	if err != nil {
+		t.Fatalf("ListUsers: %v", err)
+	}
+	if len(users) != 1 || users[0].ID != "u1" || users[0].Name != "Alice" {
+		t.Fatalf("users = %+v, want only Alice", users)
+	}
+}

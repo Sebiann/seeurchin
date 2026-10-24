@@ -143,7 +143,35 @@ func (s *Server) handleGetPoll(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, err)
 		return
 	}
-	s.respondView(w, r, p, s.currentParticipant(r, p))
+	me := s.currentParticipant(r, p)
+	if me == nil {
+		me = s.reclaimLinked(w, r, p)
+	}
+	s.respondView(w, r, p, me)
+}
+
+// signedInUser returns the Jellyfin identity when login is enabled and this
+// browser is signed in.
+func (s *Server) signedInUser(r *http.Request) (*userIdentity, bool) {
+	if !s.cfg.EnableUserLogin {
+		return nil, false
+	}
+	return s.currentUser(r)
+}
+
+// reclaimLinked puts a signed-in user back on the poll entry linked to their
+// Jellyfin account (e.g. on a new device), or returns nil if there is none.
+func (s *Server) reclaimLinked(w http.ResponseWriter, r *http.Request, p *poll.Poll) *poll.Participant {
+	id, ok := s.signedInUser(r)
+	if !ok {
+		return nil
+	}
+	me, err := s.repo.GetParticipantByJellyfinUser(r.Context(), p.ID, id.UserID)
+	if err != nil {
+		return nil
+	}
+	s.setToken(w, r, p.ID, me.SessionToken)
+	return me
 }
 
 type joinReq struct {
@@ -161,6 +189,10 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		s.respondView(w, r, p, me) // already joined; idempotent
 		return
 	}
+	if me := s.reclaimLinked(w, r, p); me != nil {
+		s.respondView(w, r, p, me)
+		return
+	}
 	var req joinReq
 	if err := decodeJSON(r, &req); err != nil {
 		s.writeErr(w, err)
@@ -172,10 +204,20 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, http.StatusForbidden, errResp{"incorrect passcode"})
 		return
 	}
+	user, signedIn := s.signedInUser(r)
+	if signedIn && strings.TrimSpace(req.DisplayName) == "" {
+		req.DisplayName = user.Name
+	}
 	me, err := s.svc.JoinAsGuest(r.Context(), p, req.DisplayName)
 	if err != nil {
 		s.writeErr(w, err)
 		return
+	}
+	if signedIn {
+		if me, err = s.svc.LinkJellyfin(r.Context(), p, me, user.UserID, false); err != nil {
+			s.writeErr(w, err)
+			return
+		}
 	}
 	s.setToken(w, r, p.ID, me.SessionToken)
 	s.respondView(w, r, p, me)
@@ -459,6 +501,127 @@ func (s *Server) handleAdvance(w http.ResponseWriter, r *http.Request) {
 	if p.Status == poll.StatusClosed {
 		s.autoRequestWinners(r.Context(), p)
 	}
+	s.respondView(w, r, p, me)
+}
+
+func (s *Server) handleMergeDuplicates(w http.ResponseWriter, r *http.Request) {
+	p, err := s.pollFromCode(r)
+	if err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	me, ok := s.requireParticipant(w, r, p)
+	if !ok {
+		return
+	}
+	if err := s.svc.MergeDuplicateNames(r.Context(), p, me); err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	s.broadcast(p.ID, "votes")
+	s.respondView(w, r, p, me)
+}
+
+// handleLink ties the caller's entry to their signed-in Jellyfin account. If
+// they're already linked elsewhere in the poll, this browser moves to that entry.
+func (s *Server) handleLink(w http.ResponseWriter, r *http.Request) {
+	p, err := s.pollFromCode(r)
+	if err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	me, ok := s.requireParticipant(w, r, p)
+	if !ok {
+		return
+	}
+	user, ok := s.signedInUser(r)
+	if !ok {
+		s.writeJSON(w, http.StatusUnauthorized, errResp{"sign in with Jellyfin first"})
+		return
+	}
+	if me, err = s.svc.LinkJellyfin(r.Context(), p, me, user.UserID, false); err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	s.setToken(w, r, p.ID, me.SessionToken)
+	s.broadcast(p.ID, "votes")
+	s.respondView(w, r, p, me)
+}
+
+// requireSignedInHost gates the host's manual-linking endpoints: the caller
+// must be this poll's host and signed in to Jellyfin (which is what entitles
+// them to see the server's account list).
+func (s *Server) requireSignedInHost(w http.ResponseWriter, r *http.Request, p *poll.Poll) (*poll.Participant, bool) {
+	me, ok := s.requireParticipant(w, r, p)
+	if !ok {
+		return nil, false
+	}
+	if !me.IsHost() {
+		s.writeJSON(w, http.StatusForbidden, errResp{"only the host can link people"})
+		return nil, false
+	}
+	if _, ok := s.signedInUser(r); !ok {
+		s.writeJSON(w, http.StatusUnauthorized, errResp{"sign in with Jellyfin first"})
+		return nil, false
+	}
+	return me, true
+}
+
+func (s *Server) handleJellyfinUsers(w http.ResponseWriter, r *http.Request) {
+	p, err := s.pollFromCode(r)
+	if err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	if _, ok := s.requireSignedInHost(w, r, p); !ok {
+		return
+	}
+	users, err := s.jf.ListUsers(r.Context())
+	if err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, users)
+}
+
+type hostLinkReq struct {
+	JellyfinUserID string `json:"jellyfin_user_id"`
+}
+
+func (s *Server) handleHostLink(w http.ResponseWriter, r *http.Request) {
+	p, err := s.pollFromCode(r)
+	if err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	me, ok := s.requireSignedInHost(w, r, p)
+	if !ok {
+		return
+	}
+	var req hostLinkReq
+	if err := decodeJSON(r, &req); err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	// Only real, enabled Jellyfin accounts can be linked.
+	users, err := s.jf.ListUsers(r.Context())
+	if err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	known := false
+	for _, u := range users {
+		known = known || u.ID == req.JellyfinUserID
+	}
+	if !known {
+		s.writeJSON(w, http.StatusBadRequest, errResp{"unknown Jellyfin account"})
+		return
+	}
+	if err := s.svc.HostLinkJellyfin(r.Context(), p, me, chi.URLParam(r, "id"), req.JellyfinUserID); err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	s.broadcast(p.ID, "votes")
 	s.respondView(w, r, p, me)
 }
 

@@ -385,3 +385,138 @@ func TestBreakTieWithoutTieConflicts(t *testing.T) {
 		t.Fatal("a clear winner has no tie to break")
 	}
 }
+
+func TestMergeDuplicateNames(t *testing.T) {
+	svc, st := newSvc(t)
+	ctx := context.Background()
+	p, host, err := svc.CreatePoll(ctx, baseInput())
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var bobs []*poll.Participant
+	for range 3 {
+		b, err := svc.JoinAsGuest(ctx, p, "Bob")
+		if err != nil {
+			t.Fatalf("join: %v", err)
+		}
+		bobs = append(bobs, b)
+	}
+	if _, err := svc.JoinAsGuest(ctx, p, "bob"); err != nil { // different capitalization: not a duplicate
+		t.Fatalf("join: %v", err)
+	}
+	nominate(t, svc, p, bobs[0], "a", "b")
+	nominate(t, svc, p, bobs[1], "b", "c")
+	if p, err = svc.Advance(ctx, p, host); err != nil {
+		t.Fatalf("advance: %v", err)
+	}
+	noms, _ := st.ListNominations(ctx, p.ID)
+	if err := svc.CastVotes(ctx, p, bobs[0], map[string]int{noms[0].ID: 1}); err != nil {
+		t.Fatalf("vote: %v", err)
+	}
+	if err := svc.CastVotes(ctx, p, bobs[2], map[string]int{noms[2].ID: 1}); err != nil {
+		t.Fatalf("vote: %v", err)
+	}
+
+	if err := svc.MergeDuplicateNames(ctx, p, bobs[0]); err == nil {
+		t.Fatal("a guest should not be able to merge")
+	}
+	if err := svc.MergeDuplicateNames(ctx, p, host); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	parts, _ := st.ListParticipants(ctx, p.ID)
+	if len(parts) != 3 {
+		t.Fatalf("participants = %d, want 3 (Alice, Bob, bob)", len(parts))
+	}
+	keep := bobs[2] // cast the newest ballot
+	for _, pt := range parts {
+		if pt.DisplayName == "Bob" && pt.ID != keep.ID {
+			t.Fatalf("kept %s, want the newest voter %s", pt.ID, keep.ID)
+		}
+	}
+	noms, _ = st.ListNominations(ctx, p.ID)
+	for _, n := range noms {
+		if len(n.Nominators) != 1 || n.Nominators[0] != keep.ID {
+			t.Fatalf("nomination %s nominators = %v, want only %s", n.JellyfinItemID, n.Nominators, keep.ID)
+		}
+	}
+	votes, _ := st.ListVotes(ctx, p.ID)
+	if len(votes) != 1 || votes[0].ParticipantID != keep.ID || votes[0].NominationID != noms[2].ID {
+		t.Fatalf("votes = %+v, want only the newest ballot (c) under %s", votes, keep.ID)
+	}
+}
+
+func TestLinkJellyfin(t *testing.T) {
+	svc, st := newSvc(t)
+	ctx := context.Background()
+	p, host, err := svc.CreatePoll(ctx, baseInput())
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	phone, _ := svc.JoinAsGuest(ctx, p, "Cookie")
+	laptop, _ := svc.JoinAsGuest(ctx, p, "Cookie")
+	nominate(t, svc, p, phone, "a")
+	nominate(t, svc, p, laptop, "b")
+
+	got, err := svc.LinkJellyfin(ctx, p, phone, "jf-cookie", false)
+	if err != nil || got.ID != phone.ID {
+		t.Fatalf("first link = %v, %v; want phone", got, err)
+	}
+	// The same account linked from a second entry folds that entry into the first.
+	got, err = svc.LinkJellyfin(ctx, p, laptop, "jf-cookie", false)
+	if err != nil || got.ID != phone.ID {
+		t.Fatalf("second link = %v, %v; want merge into phone", got, err)
+	}
+	if _, err := st.GetParticipant(ctx, laptop.ID); err == nil {
+		t.Fatal("laptop entry should be gone after merging")
+	}
+	noms, _ := st.ListNominations(ctx, p.ID)
+	for _, n := range noms {
+		if len(n.Nominators) != 1 || n.Nominators[0] != phone.ID {
+			t.Fatalf("nomination %s nominators = %v, want phone", n.JellyfinItemID, n.Nominators)
+		}
+	}
+
+	// Self-link can't move an already-linked entry; the host can.
+	phone, _ = st.GetParticipant(ctx, phone.ID)
+	if _, err := svc.LinkJellyfin(ctx, p, phone, "jf-other", false); err == nil {
+		t.Fatal("self relink to another account should fail")
+	}
+	guest, _ := svc.JoinAsGuest(ctx, p, "Vee")
+	if err := svc.HostLinkJellyfin(ctx, p, guest, phone.ID, "jf-other"); err == nil {
+		t.Fatal("a non-host should not be able to link people")
+	}
+	if err := svc.HostLinkJellyfin(ctx, p, host, phone.ID, "jf-other"); err != nil {
+		t.Fatalf("host relink: %v", err)
+	}
+	if pt, _ := st.GetParticipant(ctx, phone.ID); pt.JellyfinUserID != "jf-other" {
+		t.Fatalf("after host relink id = %q, want jf-other", pt.JellyfinUserID)
+	}
+	// Host linking Vee to an account already linked here merges Vee into that entry.
+	if err := svc.HostLinkJellyfin(ctx, p, host, guest.ID, "jf-other"); err != nil {
+		t.Fatalf("host link merge: %v", err)
+	}
+	if _, err := st.GetParticipant(ctx, guest.ID); err == nil {
+		t.Fatal("Vee should have been merged into the linked entry")
+	}
+}
+
+func TestMergeDuplicateNamesSkipsDifferentAccounts(t *testing.T) {
+	svc, st := newSvc(t)
+	ctx := context.Background()
+	p, host, _ := svc.CreatePoll(ctx, baseInput())
+	a, _ := svc.JoinAsGuest(ctx, p, "Steven")
+	b, _ := svc.JoinAsGuest(ctx, p, "Steven")
+	if _, err := svc.LinkJellyfin(ctx, p, a, "jf-1", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.LinkJellyfin(ctx, p, b, "jf-2", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.MergeDuplicateNames(ctx, p, host); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if parts, _ := st.ListParticipants(ctx, p.ID); len(parts) != 3 {
+		t.Fatalf("participants = %d, want 3: two linked Stevens are different people", len(parts))
+	}
+}

@@ -4,6 +4,7 @@
 	import ThemeToggle from './ThemeToggle.svelte';
 	import Countdown from './Countdown.svelte';
 	import HostTimerControls from './HostTimerControls.svelte';
+	import PeopleList from './PeopleList.svelte';
 
 	let {
 		poll,
@@ -110,11 +111,7 @@
 		</span>
 	</div>
 	{#if showPeople}
-		<ul class="mt-2 flex flex-wrap gap-1.5" aria-label="People in this poll">
-			{#each poll.participants as p}
-				<li class="pill">{p.display_name}{p.is_host ? ' · host' : ''}{poll.status !== 'round1' && p.has_voted ? ' · voted ✓' : ''}</li>
-			{/each}
-		</ul>
+		<PeopleList {poll} {code} {update} />
 	{/if}
 	<h1 class="mt-2 font-display text-[28px] leading-[1.15] font-bold tracking-tight text-ink [overflow-wrap:anywhere] sm:text-[32px]">{poll.title}</h1>
 

@@ -52,6 +52,14 @@ type Repository interface {
 	GetParticipant(ctx context.Context, id string) (*Participant, error)
 	GetParticipantBySession(ctx context.Context, pollID, sessionToken string) (*Participant, error)
 	ListParticipants(ctx context.Context, pollID string) ([]Participant, error)
+	// GetParticipantByJellyfinUser returns the poll's participant linked to a
+	// Jellyfin account, or ErrNotFound.
+	GetParticipantByJellyfinUser(ctx context.Context, pollID, jellyfinUserID string) (*Participant, error)
+	SetParticipantJellyfinUser(ctx context.Context, participantID, jellyfinUserID string) error
+	// MergeParticipants atomically folds dropIDs into keepID: their nominations
+	// move to keepID, ballotFromID's votes (if set and not keepID) become
+	// keepID's, and the dropped participants are deleted with their other votes.
+	MergeParticipants(ctx context.Context, pollID, keepID, ballotFromID string, dropIDs []string) error
 
 	// AddNomination records nominatorID's nomination of an item. If the item is
 	// already nominated in the poll it adds the nominator to the existing

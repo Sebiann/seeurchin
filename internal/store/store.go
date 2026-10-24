@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS participants (
   created_at       TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_participants_session ON participants(poll_id, session_token);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_participants_jellyfin ON participants(poll_id, jellyfin_user_id) WHERE jellyfin_user_id <> '';
 
 CREATE TABLE IF NOT EXISTS nominations (
   id               TEXT PRIMARY KEY,
@@ -568,6 +569,18 @@ func (s *Store) GetParticipantBySession(ctx context.Context, pollID, token strin
 	return scanParticipant(s.db.QueryRowContext(ctx, participantSelect+` WHERE poll_id = ? AND session_token = ?`, pollID, token))
 }
 
+func (s *Store) GetParticipantByJellyfinUser(ctx context.Context, pollID, jellyfinUserID string) (*poll.Participant, error) {
+	return scanParticipant(s.db.QueryRowContext(ctx, participantSelect+` WHERE poll_id = ? AND jellyfin_user_id = ?`, pollID, jellyfinUserID))
+}
+
+func (s *Store) SetParticipantJellyfinUser(ctx context.Context, participantID, jellyfinUserID string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE participants SET jellyfin_user_id = ? WHERE id = ?`, jellyfinUserID, participantID)
+	if err != nil {
+		return err
+	}
+	return mustAffect(res)
+}
+
 func scanParticipant(row *sql.Row) (*poll.Participant, error) {
 	var p poll.Participant
 	var createdAt string
@@ -745,6 +758,37 @@ func (s *Store) ReplaceVotes(ctx context.Context, pollID, participantID string, 
 				INSERT INTO votes (id, poll_id, participant_id, nomination_id, value, created_at)
 				VALUES (?,?,?,?,?,?)`,
 				v.ID, pollID, participantID, v.NominationID, v.Value, nowText()); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (s *Store) MergeParticipants(ctx context.Context, pollID, keepID, ballotFromID string, dropIDs []string) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		for _, id := range dropIDs {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT OR IGNORE INTO nomination_nominators (nomination_id, participant_id, created_at)
+				SELECT nomination_id, ?, created_at FROM nomination_nominators WHERE participant_id = ?`,
+				keepID, id); err != nil {
+				return err
+			}
+		}
+		if ballotFromID != "" && ballotFromID != keepID {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM votes WHERE poll_id = ? AND participant_id = ?`,
+				pollID, keepID); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE votes SET participant_id = ? WHERE poll_id = ? AND participant_id = ?`,
+				keepID, pollID, ballotFromID); err != nil {
+				return err
+			}
+		}
+		for _, id := range dropIDs {
+			// ON DELETE CASCADE removes their remaining votes and nominator rows.
+			if _, err := tx.ExecContext(ctx, `DELETE FROM participants WHERE poll_id = ? AND id = ?`,
+				pollID, id); err != nil {
 				return err
 			}
 		}
