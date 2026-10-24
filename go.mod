@@ -3,7 +3,7 @@ module github.com/enderu/seeurchin
 go 1.25.0
 
 require (
-	github.com/go-chi/chi/v5 v5.3.0
+	github.com/go-chi/chi/v5 v5.4.0
 	golang.org/x/image v0.41.0
 	modernc.org/sqlite v1.51.0
 )
