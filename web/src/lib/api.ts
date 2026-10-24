@@ -55,7 +55,8 @@ export const api = {
 		req<PollView>('POST', `/api/polls/${code}/nominations`, { item_id }),
 	withdraw: (code: string, id: string) =>
 		req<PollView>('DELETE', `/api/polls/${code}/nominations/${id}`),
-	advance: (code: string) => req<PollView>('POST', `/api/polls/${code}/advance`),
+	advance: (code: string, ignoreParticipantIds?: string[]) =>
+		req<PollView>('POST', `/api/polls/${code}/advance`, ignoreParticipantIds?.length ? { ignore_participant_ids: ignoreParticipantIds } : undefined),
 	link: (code: string) => req<PollView>('POST', `/api/polls/${code}/link`),
 	jellyfinUsers: (code: string) =>
 		req<{ id: string; name: string }[]>('GET', `/api/polls/${code}/jellyfin-users`),

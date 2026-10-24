@@ -646,12 +646,27 @@ func (s *Service) WithdrawNomination(ctx context.Context, p *Poll, participant *
 }
 
 // Advance moves the poll to the next stage at the host's request (this also
-// backs the "end now" timer control). Only the host may advance.
-func (s *Service) Advance(ctx context.Context, p *Poll, participant *Participant) (*Poll, error) {
+// backs the "end now" timer control). Only the host may advance. When round 2
+// closes, the ballots of the participants in ignore are discarded so they don't
+// count toward the results.
+func (s *Service) Advance(ctx context.Context, p *Poll, participant *Participant, ignore ...string) (*Poll, error) {
 	if !participant.IsHost() {
 		return nil, errForbid("only the host can advance the poll")
 	}
-	return s.advanceCore(ctx, p, false)
+	wasRound2 := p.Status == StatusRound2
+	np, err := s.advanceCore(ctx, p, false)
+	if err != nil {
+		return nil, err
+	}
+	// Dropped only after closing, so an ignored voter can't re-submit.
+	if wasRound2 && np.Status == StatusClosed {
+		for _, id := range ignore {
+			if err := s.repo.ReplaceVotes(ctx, p.ID, id, nil); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return np, nil
 }
 
 // advanceCore performs the actual round transition, shared by the host-driven

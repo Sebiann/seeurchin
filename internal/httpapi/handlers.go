@@ -492,7 +492,17 @@ func (s *Server) handleAdvance(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, err := s.svc.Advance(r.Context(), p, me); err != nil {
+	// Optional body: participant IDs whose votes the host chose to ignore.
+	var req struct {
+		IgnoreParticipantIDs []string `json:"ignore_participant_ids"`
+	}
+	if r.ContentLength > 0 {
+		if err := decodeJSON(r, &req); err != nil {
+			s.writeErr(w, err)
+			return
+		}
+	}
+	if _, err := s.svc.Advance(r.Context(), p, me, req.IgnoreParticipantIDs...); err != nil {
 		s.writeErr(w, err)
 		return
 	}

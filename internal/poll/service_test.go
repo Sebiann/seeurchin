@@ -520,3 +520,23 @@ func TestMergeDuplicateNamesSkipsDifferentAccounts(t *testing.T) {
 		t.Fatalf("participants = %d, want 3: two linked Stevens are different people", len(parts))
 	}
 }
+
+func TestAdvanceIgnoresVoters(t *testing.T) {
+	svc, st := newSvc(t)
+	ctx := context.Background()
+	p, host, _ := svc.CreatePoll(ctx, baseInput())
+	nominate(t, svc, p, host, "a", "b")
+	p, _ = svc.Advance(ctx, p, host)
+	guest, _ := svc.JoinAsGuest(ctx, p, "Troll")
+	noms, _ := st.ListNominations(ctx, p.ID)
+	_ = svc.CastVotes(ctx, p, host, map[string]int{noms[0].ID: 1})
+	_ = svc.CastVotes(ctx, p, guest, map[string]int{noms[1].ID: 1})
+	p, err := svc.Advance(ctx, p, host, guest.ID)
+	if err != nil {
+		t.Fatalf("advance: %v", err)
+	}
+	res, _, _ := svc.Results(ctx, p)
+	if len(res.WinnerIDs) != 1 || res.WinnerIDs[0] != noms[0].ID {
+		t.Fatalf("winners = %v, want only the host's pick", res.WinnerIDs)
+	}
+}

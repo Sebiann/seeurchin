@@ -37,6 +37,11 @@
 	let busy = $state(false);
 	let error = $state('');
 
+	// Host-only: voters whose ballots are dropped when revealing results.
+	let pickIgnored = $state(false);
+	let ignored = $state<string[]>([]);
+	const voters = $derived(poll.participants.filter((p) => p.has_voted));
+
 	// --- approval ---
 	const votesPerUser = Number(cfg.votes_per_user ?? 3);
 	const maxPer = Number(cfg.max_votes_per_option ?? 1);
@@ -235,10 +240,28 @@
 		{#if isHost && !poll.timer}
 			<div class="flex items-center justify-between gap-3">
 				<span class="text-sm font-bold text-muted">Hosting · {poll.voter_count} of {poll.participant_count} voted</span>
-				<button onclick={async () => update(await api.advance(code))} class="h-10 shrink-0 rounded-xl border-[1.5px] border-coral px-3.5 text-[15px] font-extrabold text-coral-ink transition hover:bg-coral/10">
-					Reveal results
-				</button>
+				<div class="flex shrink-0 items-center gap-2">
+					{#if voters.length}
+						<button onclick={() => (pickIgnored = !pickIgnored)} aria-expanded={pickIgnored} class="text-sm font-bold text-muted underline">
+							Ignore votes{ignored.length ? ` (${ignored.length})` : ''}
+						</button>
+					{/if}
+					<button onclick={async () => update(await api.advance(code, ignored))} class="h-10 rounded-xl border-[1.5px] border-coral px-3.5 text-[15px] font-extrabold text-coral-ink transition hover:bg-coral/10">
+						Reveal results
+					</button>
+				</div>
 			</div>
+			{#if pickIgnored}
+				<fieldset class="flex flex-wrap gap-x-4 gap-y-1.5">
+					<legend class="mb-1 text-sm font-semibold text-muted">Don’t count votes from:</legend>
+					{#each voters as v (v.id)}
+						<label class="flex items-center gap-1.5 text-sm font-bold text-ink">
+							<input type="checkbox" value={v.id} bind:group={ignored} class="accent-accent" />
+							{v.display_name}
+						</label>
+					{/each}
+				</fieldset>
+			{/if}
 		{/if}
 		<button onclick={submit} disabled={busy} class="btn btn-primary h-[54px] w-full text-[17px]">
 			{busy ? 'Saving…' : poll.me?.has_voted ? 'Update my vote' : 'Submit vote'}
