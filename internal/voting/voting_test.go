@@ -212,3 +212,40 @@ func TestDefaultConfigsValid(t *testing.T) {
 		}
 	}
 }
+
+func TestRankedAllWayTieSplitByLowerPreferences(t *testing.T) {
+	// Every first choice is different, but most voters rank B second.
+	all := []string{"A", "B", "C", "D"}
+	ballots := []Ballot{
+		ballot(map[string]int{"A": 1, "B": 2, "C": 3}),
+		ballot(map[string]int{"B": 1, "A": 2}),
+		ballot(map[string]int{"C": 1, "B": 2}),
+		ballot(map[string]int{"D": 1, "B": 2}),
+	}
+	res, _ := Ranked{}.Tally(nil, all, ballots)
+	if !reflect.DeepEqual(res.WinnerIDs, []string{"B"}) {
+		t.Fatalf("winners = %v, want [B]", res.WinnerIDs)
+	}
+	if res.Ranked[0].NominationID != "B" {
+		t.Fatalf("top = %+v, want B", res.Ranked[0])
+	}
+}
+
+func TestRankedBatchEliminatesUnranked(t *testing.T) {
+	// Nobody ranks C, D or E: they go out together in round 1. A and B are
+	// then level on every preference, so that's a genuine tie.
+	all := []string{"A", "B", "C", "D", "E"}
+	ballots := []Ballot{
+		ballot(map[string]int{"A": 1, "B": 2}),
+		ballot(map[string]int{"A": 1}),
+		ballot(map[string]int{"B": 1}),
+		ballot(map[string]int{"B": 1, "A": 2}),
+	}
+	res, _ := Ranked{}.Tally(nil, all, ballots)
+	if !reflect.DeepEqual(res.Rounds[0].Eliminated, []string{"C", "D", "E"}) {
+		t.Fatalf("round 1 eliminated %v, want [C D E]", res.Rounds[0].Eliminated)
+	}
+	if !reflect.DeepEqual(res.WinnerIDs, []string{"A", "B"}) {
+		t.Fatalf("winners = %v, want an A/B tie", res.WinnerIDs)
+	}
+}

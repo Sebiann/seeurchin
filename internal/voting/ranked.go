@@ -8,9 +8,10 @@ import (
 )
 
 // Ranked implements ranked-choice voting via instant-runoff (IRV). Voters rank
-// candidates (1 = top choice); the lowest first-preference candidate is
-// eliminated each round and its ballots redistributed until one candidate holds
-// a majority of the still-active ballots.
+// candidates (1 = top choice); the lowest first-preference candidates are
+// eliminated each round and their ballots redistributed until one candidate
+// holds a majority of the still-active ballots. A tie for last (including an
+// all-way tie) is split by lower preferences before declaring a tie.
 type Ranked struct{}
 
 type rankedConfig struct {
@@ -153,24 +154,21 @@ func (Ranked) Tally(raw json.RawMessage, allIDs []string, ballots []Ballot) (Res
 			rounds = append(rounds, round)
 			break
 		}
-		// Everyone tied: genuine multi-way tie, no further progress possible.
-		if maxC == minC {
+		// Eliminate everyone tied for fewest ballots, using lower preferences to
+		// split that group: only those with the least support further down the
+		// ballots go. If that would eliminate every remaining candidate, nothing
+		// separates them and it's a genuine tie.
+		lowest := lowerPreferenceLosers(prefs, active, activeIDs, counts, minC)
+		if len(lowest) == len(activeIDs) {
 			winners = append(winners, activeIDs...)
 			rounds = append(rounds, round)
 			break
 		}
-
-		// Eliminate the single lowest (deterministic tie-break by ID order).
-		var elim string
-		for _, id := range activeIDs {
-			if counts[id] == minC {
-				elim = id
-				break
-			}
+		for _, id := range lowest {
+			delete(active, id)
 		}
-		delete(active, elim)
-		elimOrder = append(elimOrder, elim)
-		round.Eliminated = []string{elim}
+		elimOrder = append(elimOrder, lowest...)
+		round.Eliminated = lowest
 		rounds = append(rounds, round)
 	}
 
@@ -180,6 +178,37 @@ func (Ranked) Tally(raw json.RawMessage, allIDs []string, ballots []Ballot) (Res
 		results = append(results, Result{NominationID: id, Score: finalCount[id]})
 	}
 	return Results{Method: "ranked", Ranked: results, WinnerIDs: winners, Rounds: rounds}, nil
+}
+
+// lowerPreferenceLosers returns the candidates with the fewest top-preference
+// ballots (minC) that also have the lowest Borda score among the active
+// candidates: on each ballot, the k-th ranked active candidate scores
+// len(active)-k+1 and unranked ones score 0. Sorted by ID.
+func lowerPreferenceLosers(prefs [][]string, active map[string]bool, activeIDs []string, counts map[string]float64, minC float64) []string {
+	borda := make(map[string]int, len(activeIDs))
+	for _, order := range prefs {
+		pts := len(activeIDs)
+		for _, id := range order {
+			if active[id] {
+				borda[id] += pts
+				pts--
+			}
+		}
+	}
+	var out []string
+	low := math.MaxInt
+	for _, id := range activeIDs {
+		if counts[id] != minC {
+			continue
+		}
+		switch {
+		case borda[id] < low:
+			low, out = borda[id], []string{id}
+		case borda[id] == low:
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // orderRanked produces the final best-first ordering: winners, then any other
