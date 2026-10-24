@@ -45,6 +45,7 @@ type pollView struct {
 	SeerrEnabled      bool                 `json:"seerr_enabled"`
 	ParticipantCount  int                  `json:"participant_count"`
 	VoterCount        int                  `json:"voter_count"`
+	Participants      []participantView    `json:"participants"`
 	Nominations       []nominationView     `json:"nominations"`
 	Me                *meView              `json:"me"`
 	Results           *resultsView         `json:"results,omitempty"`
@@ -67,6 +68,12 @@ type nominationView struct {
 	MediaType      string `json:"media_type,omitempty"`
 	NominatorCount int    `json:"nominator_count"`
 	MineNominated  bool   `json:"mine_nominated"`
+}
+
+type participantView struct {
+	DisplayName string `json:"display_name"`
+	IsHost      bool   `json:"is_host"`
+	HasVoted    bool   `json:"has_voted"`
 }
 
 type meView struct {
@@ -141,7 +148,19 @@ func (s *Server) buildPollView(ctx context.Context, p *poll.Poll, me *poll.Parti
 		ParticipantCount:  len(participants),
 		VoterCount:        voterCount,
 		ShareURL:          s.cfg.BaseURL + "/p/" + p.Code,
+		Participants:      []participantView{},
 		Nominations:       []nominationView{}, // serialize empty as [] not null
+	}
+	// Names are only shown to people who have joined (keeps passcode polls private).
+	if me != nil {
+		for _, pt := range participants {
+			// shortcut: one query per participant, fine for group-sized polls; batch it if polls get large.
+			voted, err := s.repo.HasVoted(ctx, p.ID, pt.ID)
+			if err != nil {
+				return pollView{}, err
+			}
+			view.Participants = append(view.Participants, participantView{DisplayName: pt.DisplayName, IsHost: pt.IsHost(), HasVoted: voted})
+		}
 	}
 
 	for _, n := range noms {

@@ -98,6 +98,7 @@ export interface PollView {
 	seerr_enabled: boolean;
 	participant_count: number;
 	voter_count: number;
+	participants: { display_name: string; is_host: boolean; has_voted: boolean }[]; // empty until you've joined
 	nominations: NominationView[];
 	me: MeView | null;
 	results?: ResultsView;

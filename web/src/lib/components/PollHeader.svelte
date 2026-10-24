@@ -12,6 +12,7 @@
 	}: { poll: PollView; code: string; update: (p: PollView) => void } = $props();
 
 	let copied = $state(false);
+	let showPeople = $state(false);
 
 	// Derive the share link from the origin the app was actually loaded from, so
 	// it's correct regardless of SEEURCHIN_BASE_URL (localhost, LAN IP, or the
@@ -102,11 +103,19 @@
 	<div class="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1">
 		<span class="pill {statusClass[poll.status]}">{statusLabel[poll.status]}</span>
 		<span class="text-sm font-bold text-muted">
-			{poll.participant_count} {poll.participant_count === 1 ? 'person' : 'people'}{poll.status !== 'round1' ? ` · ${poll.voter_count} voted` : ''}
+			{#if poll.participants.length}
+				<button type="button" onclick={() => (showPeople = !showPeople)} aria-expanded={showPeople} class="rounded px-0.5 underline decoration-line2 decoration-2 underline-offset-4 hover:decoration-accent">{poll.participant_count} {poll.participant_count === 1 ? 'person' : 'people'}</button>{:else}{poll.participant_count} {poll.participant_count === 1 ? 'person' : 'people'}{/if}{poll.status !== 'round1' ? ` · ${poll.voter_count} voted` : ''}
 			·
 			<button type="button" onclick={copyLink} class="rounded px-0.5 font-extrabold tracking-[0.12em] text-ink underline decoration-line2 decoration-2 underline-offset-4 hover:decoration-accent" title="Copy share link" aria-label="Poll code {poll.code}, copy share link">{poll.code}</button>
 		</span>
 	</div>
+	{#if showPeople}
+		<ul class="mt-2 flex flex-wrap gap-1.5" aria-label="People in this poll">
+			{#each poll.participants as p}
+				<li class="pill">{p.display_name}{p.is_host ? ' · host' : ''}{poll.status !== 'round1' && p.has_voted ? ' · voted ✓' : ''}</li>
+			{/each}
+		</ul>
+	{/if}
 	<h1 class="mt-2 font-display text-[28px] leading-[1.15] font-bold tracking-tight text-ink [overflow-wrap:anywhere] sm:text-[32px]">{poll.title}</h1>
 
 	{#if poll.timer}
