@@ -27,7 +27,8 @@
 
 	// A saved selection of -1 is a veto (voting.Veto); the rest are votes.
 	const saved = Object.entries(poll.me?.my_selections ?? {});
-	const maxVetoes = Number(cfg.max_vetoes ?? 0);
+	const unlimited = (n: number) => (n < 0 ? Infinity : n); // config -1 = no limit
+	const maxVetoes = unlimited(Number(cfg.max_vetoes ?? 0));
 	let vetoes = $state<string[]>(saved.filter(([, v]) => v === -1).map(([id]) => id));
 	// approval / score selections; initialized once from any existing ballot.
 	let selections = $state<Record<string, number>>(Object.fromEntries(saved.filter(([, v]) => v > 0)));
@@ -48,8 +49,9 @@
 	const voters = $derived(poll.participants.filter((p) => p.has_voted));
 
 	// --- approval ---
-	const votesPerUser = Number(cfg.votes_per_user ?? 3);
-	const maxPer = Number(cfg.max_votes_per_option ?? 1);
+	const votesPerUser = unlimited(Number(cfg.votes_per_user ?? 3));
+	// Unlimited picks can't stack (the server enforces one vote per title).
+	const maxPer = votesPerUser === Infinity ? 1 : Number(cfg.max_votes_per_option ?? 1);
 	const used = $derived(Object.values(selections).reduce((a, b) => a + (b > 0 ? b : 0), 0));
 	const remaining = $derived(votesPerUser - used);
 
@@ -138,7 +140,7 @@
 <section>
 	<div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
 		{#if method === 'approval'}
-			<h2 class="section-h">{maxPer === 1 ? `Pick up to ${votesPerUser}` : `You have ${votesPerUser} votes`}</h2>
+			<h2 class="section-h">{votesPerUser === Infinity ? 'Pick as many as you like' : maxPer === 1 ? `Pick up to ${votesPerUser}` : `You have ${votesPerUser} votes`}</h2>
 			<div class="flex items-center gap-2">
 				{#if votesPerUser <= 8}
 					<span class="flex gap-1" aria-hidden="true">
@@ -147,7 +149,11 @@
 						{/each}
 					</span>
 				{/if}
-				<span class="text-sm font-extrabold {remaining === 0 ? 'text-mango-ink' : 'text-accent-ink'}">{remaining} left</span>
+				{#if votesPerUser === Infinity}
+					<span class="text-sm font-extrabold text-accent-ink">{used} picked</span>
+				{:else}
+					<span class="text-sm font-extrabold {remaining === 0 ? 'text-mango-ink' : 'text-accent-ink'}">{remaining} left</span>
+				{/if}
 			</div>
 		{:else if method === 'ranked'}
 			<h2 class="section-h">Rank your favorites</h2>
@@ -251,7 +257,7 @@
 		<div class="mt-6">
 			<div class="flex flex-wrap items-baseline justify-between gap-x-3">
 				<h3 class="text-[15px] font-extrabold text-ink">Definitely not</h3>
-				<span class="text-sm font-semibold text-muted">{maxVetoes - vetoes.length} of {maxVetoes} veto{maxVetoes === 1 ? '' : 'es'} left · knocks a title out</span>
+				<span class="text-sm font-semibold text-muted">{maxVetoes === Infinity ? 'Veto as many as you like' : `${maxVetoes - vetoes.length} of ${maxVetoes} veto${maxVetoes === 1 ? '' : 'es'} left`} · knocks a title out</span>
 			</div>
 			<div class="mt-2 flex flex-wrap gap-2">
 				{#each noms as n (n.id)}

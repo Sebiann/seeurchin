@@ -86,7 +86,7 @@ Everything updates in real time via Server-Sent Events — no refreshing.
 
 | Method | Label in UI | Config keys (defaults) | How the winner is decided |
 |---|---|---|---|
-| **Approval** | Approval / N votes | `votes_per_user` (3), `max_votes_per_option` (1, `0` = unlimited), `allow_self_vote` (true) | Highest total weight across all ballots. With `max_votes_per_option: 1` this is plain approval voting. |
+| **Approval** | Approval / N votes | `votes_per_user` (3, `-1` = unlimited, one vote per title), `max_votes_per_option` (1, `0` = unlimited), `allow_self_vote` (true) | Highest total weight across all ballots. With `max_votes_per_option: 1` this is plain approval voting. |
 | **Ranked** | Ranked-choice (IRV) | `allow_self_vote` (true), `max_ranked` (0 = no limit) | Instant-runoff: eliminate the lowest first choice and redistribute until a title has a majority. |
 | **Score** | Star / score rating | `max_score` (5), `aggregate` (`total`; or `average`), `allow_self_vote` (true) | Rate each title `0..max_score`; ranked by total (or average) score. |
 | **Random** | Random pick | _none_ | No voting round — when the host closes round 1, one nomination is drawn uniformly at random. The draw is persisted so the winner is stable. |
@@ -96,7 +96,7 @@ caps, and whether you may vote for a title you nominated). Voting for your own
 picks can be open, disabled, or capped via `max_self_votes` (`<0` unlimited,
 `0` none, `N` at most N — when set it overrides the legacy `allow_self_vote`).
 Any voting method can also allow **vetoes** via `max_vetoes` (default `0` =
-off): each voter may mark up to N titles "definitely not", and a single veto
+off, `-1` = unlimited): each voter may mark up to N titles "definitely not", and a single veto
 knocks that title out of the running no matter how many votes it has.
 Nomination rules (`min` / `max` / `required`) are enforced independently of the
 voting method.

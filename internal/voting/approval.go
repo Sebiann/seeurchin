@@ -12,7 +12,7 @@ import (
 type Approval struct{}
 
 type approvalConfig struct {
-	VotesPerUser      int  `json:"votes_per_user"`
+	VotesPerUser      int  `json:"votes_per_user"`       // <0 = unlimited (one vote per option)
 	MaxVotesPerOption int  `json:"max_votes_per_option"` // 0 = unlimited (still capped by VotesPerUser)
 	AllowSelfVote     bool `json:"allow_self_vote"`
 	MaxSelfVotes      *int `json:"max_self_votes,omitempty"` // nil = use AllowSelfVote; <0 unlimited; 0 none; N cap
@@ -40,8 +40,8 @@ func (Approval) ValidateConfig(raw json.RawMessage) error {
 	if err != nil {
 		return err
 	}
-	if cfg.VotesPerUser < 1 {
-		return fmt.Errorf("votes_per_user must be >= 1")
+	if cfg.VotesPerUser == 0 {
+		return fmt.Errorf("votes_per_user must be >= 1 or < 0 for unlimited")
 	}
 	if cfg.MaxVotesPerOption < 0 {
 		return fmt.Errorf("max_votes_per_option must be >= 0")
@@ -57,6 +57,9 @@ func (Approval) ValidateBallot(raw json.RawMessage, b Ballot, allIDs, ownIDs []s
 	all := toSet(allIDs)
 	own := toSet(ownIDs)
 	selfLimit := selfVoteLimit(cfg.AllowSelfVote, cfg.MaxSelfVotes)
+	if cfg.VotesPerUser < 0 {
+		cfg.MaxVotesPerOption = 1 // unlimited picks: stacking would be unbounded
+	}
 	total, selfVotes := 0, 0
 	for id, votes := range b.Selections {
 		if votes <= 0 {
@@ -79,7 +82,7 @@ func (Approval) ValidateBallot(raw json.RawMessage, b Ballot, allIDs, ownIDs []s
 	if selfLimit > 0 && selfVotes > selfLimit {
 		return fmt.Errorf("at most %d vote(s) on your own nominations", selfLimit)
 	}
-	if total > cfg.VotesPerUser {
+	if cfg.VotesPerUser > 0 && total > cfg.VotesPerUser {
 		return fmt.Errorf("at most %d vote(s) total", cfg.VotesPerUser)
 	}
 	return nil

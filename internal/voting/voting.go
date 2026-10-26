@@ -177,7 +177,7 @@ func rankByScore(scores map[string]float64, allIDs []string) ([]Result, []string
 
 // Veto is the Selections value for a "definitely not" vote. Any veto knocks the
 // nomination out of the running. Vetoes are method-agnostic: the poll config's
-// max_vetoes (0 = vetoes off) caps them per voter, and ValidateBallot / Tally
+// max_vetoes (0 = vetoes off, <0 = unlimited) caps them per voter, and ValidateBallot / Tally
 // strip them before the method sees the ballot.
 const Veto = -1
 
@@ -188,7 +188,7 @@ func maxVetoes(raw json.RawMessage) int {
 	if len(raw) > 0 {
 		_ = json.Unmarshal(raw, &cfg) // a malformed blob is caught by the method's own parse
 	}
-	return max(cfg.MaxVetoes, 0)
+	return cfg.MaxVetoes
 }
 
 // ValidateBallot checks a ballot's vetoes against the config, then hands the
@@ -207,7 +207,7 @@ func ValidateBallot(m Method, raw json.RawMessage, b Ballot, allIDs, ownIDs []st
 		}
 		vetoes++
 	}
-	if limit := maxVetoes(raw); vetoes > limit {
+	if limit := maxVetoes(raw); limit >= 0 && vetoes > limit {
 		if limit == 0 {
 			return fmt.Errorf("vetoes are not allowed in this poll")
 		}

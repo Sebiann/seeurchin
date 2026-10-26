@@ -59,6 +59,14 @@ func TestApprovalValidateBallot(t *testing.T) {
 	if err := (Approval{}).ValidateBallot(noSelf, ballot(map[string]int{"A": 1}), all, []string{"A"}); err == nil {
 		t.Error("expected self-vote to be rejected")
 	}
+	// Unlimited picks: any number of titles, but one vote each.
+	unl := cfg(approvalConfig{VotesPerUser: -1, MaxVotesPerOption: 0, AllowSelfVote: true})
+	if err := (Approval{}).ValidateBallot(unl, ballot(map[string]int{"A": 1, "B": 1, "C": 1, "D": 1}), all, nil); err != nil {
+		t.Errorf("unlimited picks rejected: %v", err)
+	}
+	if err := (Approval{}).ValidateBallot(unl, ballot(map[string]int{"A": 2}), all, nil); err == nil {
+		t.Error("expected stacking to be rejected with unlimited picks")
+	}
 }
 
 func intp(n int) *int { return &n }
@@ -283,5 +291,8 @@ func TestVetoBallotLimit(t *testing.T) {
 	}
 	if err := ValidateBallot(Ranked{}, cfg(map[string]int{"max_vetoes": 2}), two, all, nil); err != nil {
 		t.Errorf("2 vetoes rejected with max_vetoes=2: %v", err)
+	}
+	if err := ValidateBallot(Ranked{}, cfg(map[string]int{"max_vetoes": -1}), two, all, nil); err != nil {
+		t.Errorf("2 vetoes rejected with unlimited vetoes: %v", err)
 	}
 }
