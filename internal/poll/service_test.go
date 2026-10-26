@@ -521,6 +521,63 @@ func TestMergeDuplicateNamesSkipsDifferentAccounts(t *testing.T) {
 	}
 }
 
+func TestMergePeople(t *testing.T) {
+	svc, st := newSvc(t)
+	ctx := context.Background()
+	p, host, _ := svc.CreatePoll(ctx, baseInput())
+	seb, _ := svc.JoinAsGuest(ctx, p, "Seb")
+	sebastian, _ := svc.JoinAsGuest(ctx, p, "Sebastian")
+	other, _ := svc.JoinAsGuest(ctx, p, "Vee")
+	nominate(t, svc, p, seb, "a")
+	nominate(t, svc, p, sebastian, "b")
+	if _, err := svc.LinkJellyfin(ctx, p, seb, "jf-seb", false); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.MergePeople(ctx, p, seb, seb.ID, sebastian.ID); err == nil {
+		t.Fatal("a guest should not be able to merge")
+	}
+	if err := svc.MergePeople(ctx, p, host, seb.ID, seb.ID); err == nil {
+		t.Fatal("merging someone into themselves should fail")
+	}
+	if err := svc.MergePeople(ctx, p, host, seb.ID, sebastian.ID); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if _, err := st.GetParticipant(ctx, seb.ID); err == nil {
+		t.Fatal("Seb should be gone after merging")
+	}
+	kept, _ := st.GetParticipant(ctx, sebastian.ID)
+	if kept.DisplayName != "Sebastian" || kept.JellyfinUserID != "jf-seb" {
+		t.Fatalf("kept = %q/%q, want Sebastian carrying jf-seb", kept.DisplayName, kept.JellyfinUserID)
+	}
+	noms, _ := st.ListNominations(ctx, p.ID)
+	for _, n := range noms {
+		if len(n.Nominators) != 1 || n.Nominators[0] != sebastian.ID {
+			t.Fatalf("nomination %s nominators = %v, want Sebastian", n.JellyfinItemID, n.Nominators)
+		}
+	}
+
+	// Merging the host into someone keeps the host entry.
+	if err := svc.MergePeople(ctx, p, host, host.ID, other.ID); err != nil {
+		t.Fatalf("merge host: %v", err)
+	}
+	if _, err := st.GetParticipant(ctx, host.ID); err != nil {
+		t.Fatalf("host entry should survive: %v", err)
+	}
+
+	// Two different Jellyfin accounts are different people.
+	if _, err := svc.LinkJellyfin(ctx, p, kept, "jf-seb", false); err != nil {
+		t.Fatal(err)
+	}
+	third, _ := svc.JoinAsGuest(ctx, p, "Kai")
+	if _, err := svc.LinkJellyfin(ctx, p, third, "jf-kai", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.MergePeople(ctx, p, host, third.ID, kept.ID); err == nil {
+		t.Fatal("entries linked to different accounts should not merge")
+	}
+}
+
 func TestAdvanceIgnoresVoters(t *testing.T) {
 	svc, st := newSvc(t)
 	ctx := context.Background()

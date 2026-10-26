@@ -15,9 +15,11 @@
 	let users = $state<{ id: string; name: string }[] | null>(null);
 	let target = $state(''); // participant the host is linking
 	let account = $state('');
+	let into = $state(''); // participant the target is merged into
 
 	const open = $derived(poll.status !== 'closed');
-	const canHostLink = $derived(poll.login_enabled && !!poll.me?.is_host && open);
+	const canManage = $derived(!!poll.me?.is_host && open);
+	const canHostLink = $derived(poll.login_enabled && canManage);
 	const hasDuplicates = $derived(
 		new Set(poll.participants.map((p) => p.display_name)).size < poll.participants.length
 	);
@@ -54,12 +56,20 @@
 	function pickTarget(id: string) {
 		target = target === id ? '' : id;
 		account = '';
-		if (target && !users) run(() => signedIn(async () => void (users = await api.jellyfinUsers(code))));
+		into = '';
+		if (target && canHostLink && !users) run(() => signedIn(async () => void (users = await api.jellyfinUsers(code))));
 	}
 
 	function hostLink() {
 		run(async () => {
 			update(await api.hostLink(code, target, account));
+			target = '';
+		});
+	}
+
+	function merge() {
+		run(async () => {
+			update(await api.mergePerson(code, target, into));
 			target = '';
 		});
 	}
@@ -69,8 +79,8 @@
 	{#each poll.participants as p (p.id)}
 		{@const label = `${p.display_name}${p.linked ? ' 🔗' : ''}${p.is_host ? ' · host' : ''}${poll.status !== 'round1' && p.has_voted ? ' · voted ✓' : ''}`}
 		<li>
-			{#if canHostLink}
-				<button type="button" onclick={() => pickTarget(p.id)} aria-expanded={target === p.id} class="pill {target === p.id ? 'ring-2 ring-accent' : ''}" title="Link to a Jellyfin account">{label}</button>
+			{#if canManage}
+				<button type="button" onclick={() => pickTarget(p.id)} aria-expanded={target === p.id} class="pill {target === p.id ? 'ring-2 ring-accent' : ''}" title={canHostLink ? 'Link to a Jellyfin account or merge with someone' : 'Merge with someone'}>{label}</button>
 			{:else}
 				<span class="pill">{label}</span>
 			{/if}
@@ -78,13 +88,22 @@
 	{/each}
 </ul>
 
-{#if target && users}
+{#if target && canHostLink && users}
 	<div class="mt-2 flex flex-wrap items-center gap-2">
 		<select bind:value={account} class="input w-auto py-1.5 text-sm" aria-label="Jellyfin account for {targetName}">
 			<option value="" disabled>Jellyfin account…</option>
 			{#each users as u (u.id)}<option value={u.id}>{u.name}</option>{/each}
 		</select>
 		<button type="button" onclick={hostLink} disabled={busy || !account} class="btn btn-primary btn-sm">Link {targetName}</button>
+	</div>
+{/if}
+{#if target}
+	<div class="mt-2 flex flex-wrap items-center gap-2">
+		<select bind:value={into} class="input w-auto py-1.5 text-sm" aria-label="Person to merge {targetName} into">
+			<option value="" disabled>Same person as…</option>
+			{#each poll.participants.filter((p) => p.id !== target) as p (p.id)}<option value={p.id}>{p.display_name}</option>{/each}
+		</select>
+		<button type="button" onclick={merge} disabled={busy || !into} class="btn btn-primary btn-sm" title="Combine into one person, keeping their newest ballot">Merge {targetName}</button>
 		<button type="button" onclick={() => (target = '')} class="btn btn-ghost btn-sm">Cancel</button>
 	</div>
 {/if}

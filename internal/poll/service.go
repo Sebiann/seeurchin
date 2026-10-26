@@ -426,6 +426,52 @@ func (s *Service) MergeDuplicateNames(ctx context.Context, p *Poll, participant 
 	return nil
 }
 
+// MergePeople lets the host fold one participant into another, for the same
+// person who joined under a different name. keepID's name survives, unless
+// dropID is the host (the host entry always survives). Only the newest ballot
+// is kept, and a Jellyfin link carries over. Entries linked to two different
+// Jellyfin accounts are different people and can't be merged. Host only.
+func (s *Service) MergePeople(ctx context.Context, p *Poll, host *Participant, dropID, keepID string) error {
+	if !host.IsHost() {
+		return errForbid("only the host can merge people")
+	}
+	if p.Status == StatusClosed {
+		return errConflict("this poll has ended")
+	}
+	if dropID == keepID {
+		return errBad("pick two different people")
+	}
+	var pair [2]*Participant
+	for i, id := range []string{dropID, keepID} {
+		pt, err := s.repo.GetParticipant(ctx, id)
+		if errors.Is(err, ErrNotFound) || (err == nil && pt.PollID != p.ID) {
+			return &Error{Code: 404, Msg: "participant not found"}
+		}
+		if err != nil {
+			return err
+		}
+		pair[i] = pt
+	}
+	drop, keep := pair[0], pair[1]
+	if drop.IsHost() {
+		drop, keep = keep, drop
+	}
+	if drop.JellyfinUserID != "" && keep.JellyfinUserID != "" && drop.JellyfinUserID != keep.JellyfinUserID {
+		return errConflict("they're linked to different Jellyfin accounts")
+	}
+	ballotAt, err := s.ballotTimes(ctx, p)
+	if err != nil {
+		return err
+	}
+	if err := s.mergeGroup(ctx, p, keep, []Participant{*keep, *drop}, ballotAt); err != nil {
+		return err
+	}
+	if keep.JellyfinUserID == "" && drop.JellyfinUserID != "" {
+		return s.repo.SetParticipantJellyfinUser(ctx, keep.ID, drop.JellyfinUserID)
+	}
+	return nil
+}
+
 // ballotTimes maps each participant who voted to when they cast their ballot.
 func (s *Service) ballotTimes(ctx context.Context, p *Poll) (map[string]time.Time, error) {
 	votes, err := s.repo.ListVotes(ctx, p.ID)

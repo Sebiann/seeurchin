@@ -532,6 +532,35 @@ func (s *Server) handleMergeDuplicates(w http.ResponseWriter, r *http.Request) {
 	s.respondView(w, r, p, me)
 }
 
+type mergeReq struct {
+	IntoID string `json:"into_id"`
+}
+
+// handleMergePerson lets the host fold participant {id} into another one, even
+// when their names differ.
+func (s *Server) handleMergePerson(w http.ResponseWriter, r *http.Request) {
+	p, err := s.pollFromCode(r)
+	if err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	me, ok := s.requireParticipant(w, r, p)
+	if !ok {
+		return
+	}
+	var req mergeReq
+	if err := decodeJSON(r, &req); err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	if err := s.svc.MergePeople(r.Context(), p, me, chi.URLParam(r, "id"), req.IntoID); err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	s.broadcast(p.ID, "votes")
+	s.respondView(w, r, p, me)
+}
+
 // handleLink ties the caller's entry to their signed-in Jellyfin account. If
 // they're already linked elsewhere in the poll, this browser moves to that entry.
 func (s *Server) handleLink(w http.ResponseWriter, r *http.Request) {

@@ -77,6 +77,7 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/link", s.handleLink)
 			r.Get("/jellyfin-users", s.handleJellyfinUsers)
 			r.Post("/participants/{id}/link", s.handleHostLink)
+			r.Post("/participants/{id}/merge", s.handleMergePerson)
 			r.Post("/tiebreak", s.handleBreakTie)
 			r.Post("/timer/start", s.handleTimerStart)
 			r.Post("/timer/pause", s.handleTimerPause)

@@ -64,6 +64,8 @@ export const api = {
 	hostLink: (code: string, participantId: string, jellyfin_user_id: string) =>
 		req<PollView>('POST', `/api/polls/${code}/participants/${participantId}/link`, { jellyfin_user_id }),
 	mergeDuplicates: (code: string) => req<PollView>('POST', `/api/polls/${code}/merge-duplicates`),
+	mergePerson: (code: string, participantId: string, into_id: string) =>
+		req<PollView>('POST', `/api/polls/${code}/participants/${participantId}/merge`, { into_id }),
 	breakTie: (code: string) => req<PollView>('POST', `/api/polls/${code}/tiebreak`),
 	startTimer: (code: string) => req<PollView>('POST', `/api/polls/${code}/timer/start`),
 	pauseTimer: (code: string) => req<PollView>('POST', `/api/polls/${code}/timer/pause`),
