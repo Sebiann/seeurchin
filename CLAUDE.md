@@ -64,7 +64,7 @@ To point the dev frontend at a running container instead of a local `go run`, se
 
 ## Frontend notes
 
-- Svelte 5 **runes mode is forced** for app code (`svelte.config.js`). Three routes: `/` (`+page.svelte`, create/home), `/p/[code]` (the whole poll lifecycle UI), and `/admin` (token-gated cross-poll history/management). Everything else is components in `web/src/lib/components/`.
+- Svelte 5 **runes mode is forced** for app code (SvelteKit 3: all Svelte/Kit config lives in the `sveltekit({...})` plugin in `web/vite.config.ts`; there is no `svelte.config.js`). Three routes: `/` (`+page.svelte`, create/home), `/p/[code]` (the whole poll lifecycle UI), and `/admin` (token-gated cross-poll history/management). Everything else is components in `web/src/lib/components/`.
 - `web/src/lib/api.ts` is the single typed API client; types in `web/src/lib/types.ts` mirror the Go view structs (`internal/httpapi/views.go`). When you change a backend response shape, update both.
 - Theming is token-driven (`web/src/routes/layout.css`): light values in `@theme`, dark re-declares the same `--color-*` vars under `[data-theme="dark"]`, so **no `dark:` variants** — use semantic utilities (`bg-surface`, `text-ink`, `bg-primary`, …), never raw hex or the old `brand-*` palette. Theme store: `web/src/lib/theme.svelte.ts`; no-flash inline script in `app.html`. Reuse the `@layer components` classes (`.btn`, `.card`, `.opt`, `.pill`, …) — see `docs/design-system.md` for the full token/class/role reference and the color rule-of-thumb (ocean primary = main action, coral = host round-advance CTA, teal accent = identity/selection/focus).
 

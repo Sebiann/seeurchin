@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # --- Stage 1: build the SvelteKit frontend ---
-# Outputs static assets into /src/internal/httpapi/webdist (per svelte.config.js).
+# Outputs static assets into /src/internal/httpapi/webdist (per the sveltekit() plugin in web/vite.config.ts).
 # Built on the native build platform: the output is arch-independent.
 FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend
 WORKDIR /src/web
