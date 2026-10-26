@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
-	import type { AdminPollSummary, PollView } from '$lib/types';
+	import type { AdminBallot, AdminPollSummary, PollView } from '$lib/types';
 	import UrchinMark from '$lib/components/UrchinMark.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 	import JellyfinLogin from '$lib/components/JellyfinLogin.svelte';
@@ -23,6 +23,7 @@
 	// inline detail
 	let openCode = $state<string | null>(null);
 	let detail = $state<PollView | null>(null);
+	let ballots = $state<AdminBallot[]>([]);
 	let detailLoading = $state(false);
 
 	const statusLabel: Record<string, string> = {
@@ -122,6 +123,7 @@
 		if (openCode === code) {
 			openCode = null;
 			detail = null;
+			ballots = [];
 			return;
 		}
 		await openDetail(code, false);
@@ -129,12 +131,16 @@
 
 	async function openDetail(code: string, keepStale: boolean) {
 		openCode = code;
-		if (!keepStale) detail = null;
+		if (!keepStale) {
+			detail = null;
+			ballots = [];
+		}
 		detailLoading = true;
 		try {
-			detail = await api.adminPoll(code);
+			[detail, ballots] = await Promise.all([api.adminPoll(code), api.adminBallots(code)]);
 		} catch {
 			detail = null;
+			ballots = [];
 		} finally {
 			detailLoading = false;
 		}
@@ -148,6 +154,12 @@
 			return p.title.toLowerCase().includes(q) || p.code.toLowerCase().includes(q);
 		})
 	);
+
+	function fmtValue(method: string, v: number): string {
+		if (method === 'ranked') return `#${v}`;
+		if (method === 'score') return `${v}`;
+		return `${v}×`;
+	}
 
 	function fmtDate(s?: string): string {
 		if (!s) return '';
@@ -330,6 +342,36 @@
 										</ul>
 									{:else if detail.status === 'closed'}
 										<p class="mt-3 text-sm font-semibold text-muted">No votes were cast.</p>
+									{/if}
+
+									{#if detail.status !== 'round1' && ballots.length}
+										<p class="mb-1.5 mt-3 text-xs font-bold uppercase tracking-wide text-faint">
+											Ballots
+										</p>
+										<ul class="space-y-2">
+											{#each ballots as b (b.participant_id)}
+												<li class="text-sm">
+													<div class="flex items-center gap-2">
+														<span class="truncate font-bold text-ink">{b.display_name}</span>
+														{#if b.is_host}<span class="text-xs font-semibold text-faint">host</span>{/if}
+													</div>
+													{#if b.has_voted}
+														<ul class="mt-0.5 space-y-0.5 pl-3">
+															{#each b.selections as sel (sel.nomination_id)}
+																<li class="flex items-center justify-between gap-2">
+																	<span class="truncate text-muted">{sel.title}</span>
+																	<span class="shrink-0 text-xs font-semibold text-faint"
+																		>{fmtValue(p.voting_method, sel.value)}</span
+																	>
+																</li>
+															{/each}
+														</ul>
+													{:else}
+														<p class="pl-3 text-xs font-semibold text-faint">Didn't vote</p>
+													{/if}
+												</li>
+											{/each}
+										</ul>
 									{/if}
 								{/if}
 							</div>

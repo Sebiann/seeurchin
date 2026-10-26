@@ -7,7 +7,8 @@ import type {
 	ExternalResult,
 	UserSession,
 	AdminSession,
-	AdminPollSummary
+	AdminPollSummary,
+	AdminBallot
 } from './types';
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -87,6 +88,7 @@ export const api = {
 	adminSession: () => req<AdminSession>('GET', '/api/admin/session'),
 	adminPolls: () => req<AdminPollSummary[]>('GET', '/api/admin/polls'),
 	adminPoll: (code: string) => req<PollView>('GET', `/api/admin/polls/${code}`),
+	adminBallots: (code: string) => req<AdminBallot[]>('GET', `/api/admin/polls/${code}/ballots`),
 	adminDeletePoll: (code: string) => req<null>('DELETE', `/api/admin/polls/${code}`),
 	adminAdvance: (code: string) => req<AdminPollSummary>('POST', `/api/admin/polls/${code}/advance`)
 };
