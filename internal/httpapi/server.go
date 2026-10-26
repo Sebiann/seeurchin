@@ -82,6 +82,7 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/timer/start", s.handleTimerStart)
 			r.Post("/timer/pause", s.handleTimerPause)
 			r.Post("/timer/extend", s.handleTimerExtend)
+			r.Patch("/settings", s.handleUpdateSettings)
 			r.Post("/votes", s.handleVote)
 			r.With(s.requireUser).Post("/request/{id}", s.handleRequestWinner)
 			r.Get("/results", s.handleResults)

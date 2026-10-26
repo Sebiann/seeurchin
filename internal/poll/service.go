@@ -964,6 +964,73 @@ func (s *Service) PurgeExpired(ctx context.Context, now time.Time, retentionDays
 	return s.repo.DeleteClosedPollsBefore(ctx, cutoff)
 }
 
+// UpdateSettings changes a running poll's voting config and live-results flag.
+// Host only, and never once closed. In round 2 a config is accepted only if
+// every ballot already cast still validates under it, so nobody has to revote.
+func (s *Service) UpdateSettings(ctx context.Context, p *Poll, participant *Participant, cfg json.RawMessage, resultsLive bool) error {
+	if !participant.IsHost() {
+		return errForbid("only the host can change settings")
+	}
+	if p.Status == StatusClosed {
+		return errConflict("the poll is closed")
+	}
+	method, ok := voting.Get(p.VotingMethod)
+	if !ok {
+		return errBad("unknown voting method %q", p.VotingMethod)
+	}
+	if len(cfg) == 0 {
+		return errBad("voting config is required")
+	}
+	if err := method.ValidateConfig(cfg); err != nil {
+		return errBad("voting config: %v", err)
+	}
+	if p.Status == StatusRound2 {
+		if err := s.checkBallotsStillValid(ctx, p, method, cfg); err != nil {
+			return err
+		}
+	}
+	p.VotingConfig = cfg
+	p.ResultsLive = resultsLive
+	return s.repo.UpdatePollSettings(ctx, p)
+}
+
+func (s *Service) checkBallotsStillValid(ctx context.Context, p *Poll, method voting.Method, cfg json.RawMessage) error {
+	noms, err := s.repo.ListNominations(ctx, p.ID)
+	if err != nil {
+		return err
+	}
+	votes, err := s.repo.ListVotes(ctx, p.ID)
+	if err != nil {
+		return err
+	}
+	allIDs := make([]string, 0, len(noms))
+	own := map[string][]string{} // participant -> nominations they made
+	for _, n := range noms {
+		allIDs = append(allIDs, n.ID)
+		for _, nominator := range n.Nominators {
+			own[nominator] = append(own[nominator], n.ID)
+		}
+	}
+	ballots := map[string]map[string]int{}
+	for _, v := range votes {
+		if ballots[v.ParticipantID] == nil {
+			ballots[v.ParticipantID] = map[string]int{}
+		}
+		ballots[v.ParticipantID][v.NominationID] = v.Value
+	}
+	broken := 0
+	for pid, sel := range ballots {
+		b := voting.Ballot{ParticipantID: pid, Selections: sel}
+		if voting.ValidateBallot(method, cfg, b, allIDs, own[pid]) != nil {
+			broken++
+		}
+	}
+	if broken > 0 {
+		return errConflict("that change would undo %d ballot(s) already cast", broken)
+	}
+	return nil
+}
+
 // CastVotes validates and records a participant's ballot for round 2.
 func (s *Service) CastVotes(ctx context.Context, p *Poll, participant *Participant, selections map[string]int) error {
 	if p.Status != StatusRound2 {

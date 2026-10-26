@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"time"
@@ -62,8 +63,25 @@ func (s *Server) handleTimerExtend(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// timerAction loads the poll, runs a host timer mutation, then broadcasts and
-// responds with the refreshed view — the shared shape of the timer endpoints.
+type settingsReq struct {
+	VotingConfig json.RawMessage `json:"voting_config"`
+	ResultsLive  bool            `json:"results_live"`
+}
+
+func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	var req settingsReq
+	if err := decodeJSON(r, &req); err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	s.timerAction(w, r, func(p *poll.Poll, me *poll.Participant) (*poll.Poll, error) {
+		return p, s.svc.UpdateSettings(r.Context(), p, me, req.VotingConfig, req.ResultsLive)
+	})
+}
+
+// timerAction loads the poll, runs a host mutation, then broadcasts and
+// responds with the refreshed view — the shared shape of the timer and
+// settings endpoints.
 func (s *Server) timerAction(w http.ResponseWriter, r *http.Request, fn func(*poll.Poll, *poll.Participant) (*poll.Poll, error)) {
 	p, err := s.pollFromCode(r)
 	if err != nil {

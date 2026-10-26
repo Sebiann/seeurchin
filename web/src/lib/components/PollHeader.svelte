@@ -5,6 +5,7 @@
 	import Countdown from './Countdown.svelte';
 	import HostTimerControls from './HostTimerControls.svelte';
 	import PeopleList from './PeopleList.svelte';
+	import PollSettings from './PollSettings.svelte';
 
 	let {
 		poll,
@@ -14,6 +15,9 @@
 
 	let copied = $state(false);
 	let showPeople = $state(false);
+	let showSettings = $state(false);
+	// Random has no voting rules to edit; a closed poll is final.
+	const canEdit = $derived(!!poll.me?.is_host && poll.status !== 'closed' && poll.voting_method !== 'random');
 
 	// Derive the share link from the origin the app was actually loaded from, so
 	// it's correct regardless of SEEURCHIN_BASE_URL (localhost, LAN IP, or the
@@ -97,6 +101,17 @@
 					Invite
 				{/if}
 			</button>
+			{#if canEdit}
+				<button
+					type="button"
+					onclick={() => (showSettings = true)}
+					class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-[1.5px] border-line2 text-muted transition hover:border-accent hover:text-ink"
+					title="Poll settings"
+					aria-label="Poll settings"
+				>
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></svg>
+				</button>
+			{/if}
 			<ThemeToggle />
 		</div>
 	</div>
@@ -128,3 +143,7 @@
 		{/if}
 	{/if}
 </header>
+
+{#if showSettings && canEdit}
+	<PollSettings {poll} {code} {update} close={() => (showSettings = false)} />
+{/if}

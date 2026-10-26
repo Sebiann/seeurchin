@@ -22,6 +22,9 @@ type Repository interface {
 	// UpdatePollTimers persists the deadline-related fields (durations, close
 	// times, paused remainder) for a poll.
 	UpdatePollTimers(ctx context.Context, p *Poll) error
+	// UpdatePollSettings persists the host-editable settings (voting config,
+	// live results) for a poll.
+	UpdatePollSettings(ctx context.Context, p *Poll) error
 	// ListActiveTimedPolls returns every poll currently in round 1 or round 2
 	// that has a close time set for its active round (i.e. a running timer). The
 	// caller decides which have actually expired.

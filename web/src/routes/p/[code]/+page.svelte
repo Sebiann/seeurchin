@@ -56,7 +56,10 @@
 		{:else if poll.status === 'round1'}
 			<Round1 {poll} {code} {update} />
 		{:else if poll.status === 'round2'}
-			<Ballot {poll} {code} {update} />
+			<!-- Ballot reads its rules once; remount when the host edits them. -->
+			{#key JSON.stringify(poll.voting_config)}
+				<Ballot {poll} {code} {update} />
+			{/key}
 		{:else}
 			<Results {poll} {code} {update} />
 		{/if}

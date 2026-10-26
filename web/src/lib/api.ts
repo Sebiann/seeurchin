@@ -71,6 +71,8 @@ export const api = {
 	pauseTimer: (code: string) => req<PollView>('POST', `/api/polls/${code}/timer/pause`),
 	extendTimer: (code: string, add_seconds: number) =>
 		req<PollView>('POST', `/api/polls/${code}/timer/extend`, { add_seconds }),
+	updateSettings: (code: string, voting_config: Record<string, unknown>, results_live: boolean) =>
+		req<PollView>('PATCH', `/api/polls/${code}/settings`, { voting_config, results_live }),
 	vote: (code: string, selections: Record<string, number>) =>
 		req<PollView>('POST', `/api/polls/${code}/votes`, { selections }),
 	results: (code: string) => req<ResultsView>('GET', `/api/polls/${code}/results`),

@@ -597,3 +597,39 @@ func TestAdvanceIgnoresVoters(t *testing.T) {
 		t.Fatalf("winners = %v, want only the host's pick", res.WinnerIDs)
 	}
 }
+
+func TestUpdateSettingsKeepsCastBallotsValid(t *testing.T) {
+	svc, st := newSvc(t)
+	ctx := context.Background()
+	p, host, err := svc.CreatePoll(ctx, baseInput())
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	guest, err := svc.JoinAsGuest(ctx, p, "Bob")
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	nominate(t, svc, p, host, "a", "b", "c")
+	if p, err = svc.Advance(ctx, p, host); err != nil {
+		t.Fatalf("advance to round 2: %v", err)
+	}
+	noms, _ := st.ListNominations(ctx, p.ID)
+	if err := svc.CastVotes(ctx, p, guest, map[string]int{noms[0].ID: 1, noms[1].ID: 1}); err != nil {
+		t.Fatalf("guest vote: %v", err)
+	}
+
+	if err := svc.UpdateSettings(ctx, p, guest, []byte(`{"votes_per_user":5}`), false); err == nil {
+		t.Error("a guest changed settings")
+	}
+	// Bob used 2 picks: dropping to 1 would undo his ballot.
+	if err := svc.UpdateSettings(ctx, p, host, []byte(`{"votes_per_user":1,"max_votes_per_option":1}`), false); err == nil {
+		t.Error("tightening below a cast ballot was accepted")
+	}
+	if err := svc.UpdateSettings(ctx, p, host, []byte(`{"votes_per_user":-1,"max_vetoes":2}`), true); err != nil {
+		t.Fatalf("loosening rejected: %v", err)
+	}
+	got, _ := st.GetPollByID(ctx, p.ID)
+	if !got.ResultsLive || string(got.VotingConfig) != `{"votes_per_user":-1,"max_vetoes":2}` {
+		t.Fatalf("settings not saved: live=%v cfg=%s", got.ResultsLive, got.VotingConfig)
+	}
+}

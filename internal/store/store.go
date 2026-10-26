@@ -404,6 +404,16 @@ func (s *Store) UpdatePollTimers(ctx context.Context, p *poll.Poll) error {
 	return mustAffect(res)
 }
 
+func (s *Store) UpdatePollSettings(ctx context.Context, p *poll.Poll) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE polls SET voting_config = ?, results_live = ? WHERE id = ?`,
+		string(p.VotingConfig), boolToInt(p.ResultsLive), p.ID)
+	if err != nil {
+		return err
+	}
+	return mustAffect(res)
+}
+
 // ListActiveTimedPolls returns polls in round 1 or round 2 whose active round
 // has a close time set (a running timer).
 func (s *Store) ListActiveTimedPolls(ctx context.Context) ([]*poll.Poll, error) {

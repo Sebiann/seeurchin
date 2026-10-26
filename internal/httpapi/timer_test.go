@@ -112,3 +112,26 @@ func TestUntimedPollHasNoTimerView(t *testing.T) {
 		t.Fatalf("untimed poll should have no timer view, got %+v", created.Timer)
 	}
 }
+
+func TestUpdateSettingsHostOnly(t *testing.T) {
+	ts := newTestServer(t)
+	host := newClient(t)
+	code, _ := createQuickPoll(t, ts.URL, host)
+	url := ts.URL + "/api/polls/" + code + "/settings"
+	body := map[string]any{"voting_config": json.RawMessage(`{"votes_per_user":-1,"max_vetoes":-1}`), "results_live": true}
+
+	guest := newClient(t)
+	if c := do(t, guest, http.MethodPost, ts.URL+"/api/polls/"+code+"/join", map[string]any{"display_name": "Bob"}, nil); c != http.StatusOK {
+		t.Fatalf("join status = %d", c)
+	}
+	if c := do(t, guest, http.MethodPatch, url, body, nil); c != http.StatusForbidden {
+		t.Fatalf("guest settings status = %d, want 403", c)
+	}
+	var got pollView
+	if c := do(t, host, http.MethodPatch, url, body, &got); c != http.StatusOK {
+		t.Fatalf("host settings status = %d", c)
+	}
+	if !got.ResultsLive || string(got.VotingConfig) != `{"votes_per_user":-1,"max_vetoes":-1}` {
+		t.Fatalf("settings not applied: live=%v cfg=%s", got.ResultsLive, got.VotingConfig)
+	}
+}
