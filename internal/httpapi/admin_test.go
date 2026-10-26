@@ -128,6 +128,22 @@ func TestAdminDashboardFlow(t *testing.T) {
 		t.Fatalf("counts = %+v, want 1/2/1", *row)
 	}
 
+	// Ballots expose each participant's individual choices to the admin.
+	var ballots []adminBallotView
+	if code := do(t, admin, http.MethodGet, ts.URL+"/api/admin/polls/"+pc+"/ballots", nil, &ballots); code != http.StatusOK {
+		t.Fatalf("ballots = %d", code)
+	}
+	if len(ballots) != 1 || !ballots[0].HasVoted || !ballots[0].IsHost || len(ballots[0].Selections) != 1 {
+		t.Fatalf("ballots = %+v, want one host ballot with one selection", ballots)
+	}
+	if sel := ballots[0].Selections[0]; sel.NominationID != m1 || sel.Title != "Dune" || sel.Value != 1 {
+		t.Fatalf("selection = %+v, want m1/Dune/1", sel)
+	}
+	// ...but not to a signed-in non-admin.
+	if code := do(t, host, http.MethodGet, ts.URL+"/api/admin/polls/"+pc+"/ballots", nil, nil); code != http.StatusForbidden {
+		t.Fatalf("non-admin ballots = %d, want 403", code)
+	}
+
 	// Force-advance a fresh round-1 poll without being its host.
 	var p2 pollView
 	do(t, host, http.MethodPost, ts.URL+"/api/polls", map[string]any{

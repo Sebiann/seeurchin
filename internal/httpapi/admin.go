@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -140,6 +141,86 @@ func (s *Server) handleAdminPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeJSON(w, http.StatusOK, view)
+}
+
+// adminBallotView is one participant's ballot as seen by an admin. Selections
+// is empty for someone who hasn't voted (HasVoted false).
+type adminBallotView struct {
+	ParticipantID string               `json:"participant_id"`
+	DisplayName   string               `json:"display_name"`
+	IsHost        bool                 `json:"is_host"`
+	HasVoted      bool                 `json:"has_voted"`
+	Selections    []adminSelectionView `json:"selections"`
+}
+
+// adminSelectionView is one allocation on a ballot. Value's meaning follows the
+// poll's voting method: votes (approval), rank with 1 = first (ranked), or score.
+type adminSelectionView struct {
+	NominationID string `json:"nomination_id"`
+	Title        string `json:"title"`
+	Value        int    `json:"value"`
+}
+
+// handleAdminBallots returns every participant's individual ballot for one
+// poll, in join order. Ballots are otherwise private to the voter; only admins
+// see them here.
+func (s *Server) handleAdminBallots(w http.ResponseWriter, r *http.Request) {
+	p, err := s.pollFromCode(r)
+	if err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	ctx := r.Context()
+	participants, err := s.repo.ListParticipants(ctx, p.ID)
+	if err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	noms, err := s.repo.ListNominations(ctx, p.ID)
+	if err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	votes, err := s.repo.ListVotes(ctx, p.ID)
+	if err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	titles := make(map[string]string, len(noms))
+	for _, n := range noms {
+		titles[n.ID] = n.Snapshot.Title
+	}
+	byVoter := map[string][]adminSelectionView{}
+	for _, v := range votes {
+		byVoter[v.ParticipantID] = append(byVoter[v.ParticipantID], adminSelectionView{
+			NominationID: v.NominationID,
+			Title:        titles[v.NominationID],
+			Value:        v.Value,
+		})
+	}
+	// Ranks read best-first ascending; votes and scores descending.
+	ascending := p.VotingMethod == "ranked"
+	out := make([]adminBallotView, 0, len(participants))
+	for _, pt := range participants {
+		sel := byVoter[pt.ID]
+		sort.SliceStable(sel, func(i, j int) bool {
+			if sel[i].Value != sel[j].Value {
+				return (sel[i].Value < sel[j].Value) == ascending
+			}
+			return sel[i].Title < sel[j].Title
+		})
+		if sel == nil {
+			sel = []adminSelectionView{} // serialize empty as [] not null
+		}
+		out = append(out, adminBallotView{
+			ParticipantID: pt.ID,
+			DisplayName:   pt.DisplayName,
+			IsHost:        pt.IsHost(),
+			HasVoted:      len(sel) > 0,
+			Selections:    sel,
+		})
+	}
+	s.writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleAdminDeletePoll(w http.ResponseWriter, r *http.Request) {
