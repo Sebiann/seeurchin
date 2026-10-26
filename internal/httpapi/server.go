@@ -104,6 +104,7 @@ func (s *Server) Routes() http.Handler {
 				r.Get("/polls/{code}/ballots", s.handleAdminBallots)
 				r.Delete("/polls/{code}", s.handleAdminDeletePoll)
 				r.Post("/polls/{code}/advance", s.handleAdminAdvance)
+				r.Post("/polls/{code}/duplicate", s.handleAdminDuplicate)
 			})
 		})
 

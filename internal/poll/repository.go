@@ -50,6 +50,10 @@ type Repository interface {
 	// (closed_at, or decided_at as a fallback) is before cutoff, returning how
 	// many were removed. Polls with no recorded end time are never purged.
 	DeleteClosedPollsBefore(ctx context.Context, cutoff time.Time) (int, error)
+	// ClonePoll copies poll srcID and all its participants, nominations and
+	// votes into a new poll with dst's ID, code and title; dst otherwise holds
+	// the source's fields and its host/winner IDs are remapped to the copy's.
+	ClonePoll(ctx context.Context, srcID string, dst *Poll) error
 
 	CreateParticipant(ctx context.Context, p *Participant) error
 	GetParticipant(ctx context.Context, id string) (*Participant, error)

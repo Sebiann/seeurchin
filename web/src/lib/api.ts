@@ -94,5 +94,7 @@ export const api = {
 	adminPoll: (code: string) => req<PollView>('GET', `/api/admin/polls/${code}`),
 	adminBallots: (code: string) => req<AdminBallot[]>('GET', `/api/admin/polls/${code}/ballots`),
 	adminDeletePoll: (code: string) => req<null>('DELETE', `/api/admin/polls/${code}`),
-	adminAdvance: (code: string) => req<AdminPollSummary>('POST', `/api/admin/polls/${code}/advance`)
+	adminAdvance: (code: string) => req<AdminPollSummary>('POST', `/api/admin/polls/${code}/advance`),
+	adminDuplicate: (code: string) =>
+		req<AdminPollSummary>('POST', `/api/admin/polls/${code}/duplicate`)
 };

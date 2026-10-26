@@ -188,3 +188,55 @@ func TestDeleteClosedPollsBefore(t *testing.T) {
 		t.Fatalf("early cutoff purged %d (err %v), want 0", n, err)
 	}
 }
+
+func TestClonePollCopiesStateWithFreshIDs(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	src := mkPoll(t, s, "AAAAAA", "Original", time.Now().UTC())
+	g := &poll.Participant{ID: poll.NewID(), PollID: src.ID, DisplayName: "G", SessionToken: "tok"}
+	if err := s.CreateParticipant(ctx, g); err != nil {
+		t.Fatalf("CreateParticipant: %v", err)
+	}
+	nom, err := s.AddNomination(ctx, &poll.Nomination{PollID: src.ID, JellyfinItemID: "m1", Snapshot: poll.ItemSnapshot{Title: "Dune"}}, g.ID)
+	if err != nil {
+		t.Fatalf("AddNomination: %v", err)
+	}
+	if err := s.ReplaceVotes(ctx, src.ID, g.ID, []poll.Vote{{NominationID: nom.ID, Value: 3}}); err != nil {
+		t.Fatalf("ReplaceVotes: %v", err)
+	}
+	if err := s.SetPollWinner(ctx, src.ID, nom.ID); err != nil {
+		t.Fatalf("SetPollWinner: %v", err)
+	}
+	src, _ = s.GetPollByID(ctx, src.ID)
+
+	dst := *src
+	dst.ID, dst.Code, dst.Title = poll.NewID(), "BBBBBB", "Copy"
+	if err := s.ClonePoll(ctx, src.ID, &dst); err != nil {
+		t.Fatalf("ClonePoll: %v", err)
+	}
+
+	got, err := s.GetPollByCode(ctx, "BBBBBB")
+	if err != nil {
+		t.Fatalf("GetPollByCode: %v", err)
+	}
+	parts, _ := s.ListParticipants(ctx, got.ID)
+	noms, _ := s.ListNominations(ctx, got.ID)
+	votes, _ := s.ListVotes(ctx, got.ID)
+	if got.Title != "Copy" || len(parts) != 2 || len(noms) != 1 || len(votes) != 1 {
+		t.Fatalf("copy = %q, %d participants, %d noms, %d votes", got.Title, len(parts), len(noms), len(votes))
+	}
+	if got.HostParticipantID == src.HostParticipantID || got.HostParticipantID != parts[0].ID || got.HostParticipantID != dst.HostParticipantID {
+		t.Errorf("host not remapped: %q (parts[0] %q)", got.HostParticipantID, parts[0].ID)
+	}
+	if noms[0].ID == nom.ID || got.WinnerNominationID != noms[0].ID {
+		t.Errorf("winner not remapped: %q, nom %q", got.WinnerNominationID, noms[0].ID)
+	}
+	if parts[1].SessionToken == "tok" || noms[0].Nominators[0] != parts[1].ID ||
+		votes[0].ParticipantID != parts[1].ID || votes[0].NominationID != noms[0].ID || votes[0].Value != 3 {
+		t.Errorf("links not remapped: part %+v nom %+v vote %+v", parts[1], noms[0], votes[0])
+	}
+	// The source is untouched.
+	if v, _ := s.ListVotes(ctx, src.ID); len(v) != 1 || v[0].NominationID != nom.ID {
+		t.Errorf("source votes changed: %+v", v)
+	}
+}

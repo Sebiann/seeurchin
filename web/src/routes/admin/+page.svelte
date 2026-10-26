@@ -102,6 +102,17 @@
 		}
 	}
 
+	async function duplicate(p: AdminPollSummary) {
+		busy = p.code;
+		try {
+			polls = [await api.adminDuplicate(p.code), ...polls];
+		} catch (e) {
+			alert(e instanceof Error ? e.message : 'could not duplicate poll');
+		} finally {
+			busy = '';
+		}
+	}
+
 	async function del(p: AdminPollSummary) {
 		if (!confirm(`Delete "${p.title}" and all of its data? This can't be undone.`)) return;
 		busy = p.code;
@@ -284,6 +295,9 @@
 									{p.status === 'round2' ? 'Close poll' : 'Advance'}
 								</button>
 							{/if}
+							<button onclick={() => duplicate(p)} disabled={busy === p.code} class="btn btn-ghost btn-sm">
+								Duplicate
+							</button>
 							<button
 								onclick={() => del(p)}
 								disabled={busy === p.code}

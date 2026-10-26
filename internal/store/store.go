@@ -552,6 +552,146 @@ func (s *Store) DeleteClosedPollsBefore(ctx context.Context, cutoff time.Time) (
 	return int(n), err
 }
 
+// ClonePoll copies the poll srcID, with its participants, nominations,
+// nominators, votes and Seerr request records, into a new poll with dst's ID,
+// code and title. Every row gets a fresh ID (and participants a fresh session
+// token); Jellyfin links carry over so a signed-in user reclaims their copy.
+// auto_request_winner is turned off so a copy can never trigger a Seerr request.
+func (s *Store) ClonePoll(ctx context.Context, srcID string, dst *poll.Poll) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO polls (id, code, title, host_participant_id, library_scope, status,
+				submission_rules, voting_method, voting_config, allow_guests, results_live,
+				reveal_nominators, reveal_scope, genres, winner_nomination_id, decided_at, closed_at,
+				allow_writeins, auto_request_winner, passcode_hash,
+				created_at, round1_closes_at, round2_closes_at,
+				deadline_mode, round1_duration_sec, round2_duration_sec, timer_paused_sec)
+			SELECT ?, ?, ?, host_participant_id, library_scope, status,
+				submission_rules, voting_method, voting_config, allow_guests, results_live,
+				reveal_nominators, reveal_scope, genres, winner_nomination_id, decided_at, closed_at,
+				allow_writeins, 0, passcode_hash,
+				?, round1_closes_at, round2_closes_at,
+				deadline_mode, round1_duration_sec, round2_duration_sec, timer_paused_sec
+			FROM polls WHERE id = ?`,
+			dst.ID, dst.Code, dst.Title, nowText(), srcID)
+		if err != nil {
+			return err
+		}
+		if err := mustAffect(res); err != nil {
+			return err
+		}
+		partIDs, err := cloneRows(ctx, tx, `SELECT id FROM participants WHERE poll_id = ?`, srcID, `
+			INSERT INTO participants (id, poll_id, display_name, session_token, jellyfin_user_id, role, created_at)
+			SELECT ?, ?, display_name, ?, jellyfin_user_id, role, created_at FROM participants WHERE id = ?`,
+			dst.ID, true)
+		if err != nil {
+			return err
+		}
+		nomIDs, err := cloneRows(ctx, tx, `SELECT id FROM nominations WHERE poll_id = ?`, srcID, `
+			INSERT INTO nominations (id, poll_id, jellyfin_item_id, snapshot, created_at)
+			SELECT ?, ?, jellyfin_item_id, snapshot, created_at FROM nominations WHERE id = ?`,
+			dst.ID, false)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE polls SET host_participant_id = ?, winner_nomination_id = ? WHERE id = ?`,
+			partIDs[dst.HostParticipantID], nomIDs[dst.WinnerNominationID], dst.ID); err != nil {
+			return err
+		}
+
+		// Link rows reference participants/nominations, so remap their IDs in Go.
+		type link struct {
+			part, nom, created string
+			value              int
+		}
+		readLinks := func(q string) ([]link, error) {
+			rows, err := tx.QueryContext(ctx, q, srcID)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+			var out []link
+			for rows.Next() {
+				var l link
+				if err := rows.Scan(&l.part, &l.nom, &l.value, &l.created); err != nil {
+					return nil, err
+				}
+				out = append(out, l)
+			}
+			return out, rows.Err()
+		}
+		nominators, err := readLinks(`
+			SELECT nn.participant_id, nn.nomination_id, 0, nn.created_at FROM nomination_nominators nn
+			JOIN nominations n ON n.id = nn.nomination_id WHERE n.poll_id = ?`)
+		if err != nil {
+			return err
+		}
+		for _, l := range nominators {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO nomination_nominators (nomination_id, participant_id, created_at) VALUES (?,?,?)`,
+				nomIDs[l.nom], partIDs[l.part], l.created); err != nil {
+				return err
+			}
+		}
+		votes, err := readLinks(`SELECT participant_id, nomination_id, value, created_at FROM votes WHERE poll_id = ?`)
+		if err != nil {
+			return err
+		}
+		for _, l := range votes {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO votes (id, poll_id, participant_id, nomination_id, value, created_at) VALUES (?,?,?,?,?,?)`,
+				poll.NewID(), dst.ID, partIDs[l.part], nomIDs[l.nom], l.value, l.created); err != nil {
+				return err
+			}
+		}
+		// Seerr request records keep "already requested" winners from being re-requested.
+		for oldID, newID := range nomIDs {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO seerr_requests (poll_id, nomination_id, tmdb_id, media_type, status, created_at)
+				SELECT ?, ?, tmdb_id, media_type, status, created_at FROM seerr_requests
+				WHERE poll_id = ? AND nomination_id = ?`, dst.ID, newID, srcID, oldID); err != nil {
+				return err
+			}
+		}
+		dst.HostParticipantID = partIDs[dst.HostParticipantID]
+		dst.WinnerNominationID = nomIDs[dst.WinnerNominationID]
+		return nil
+	})
+}
+
+// cloneRows copies each row listed by listQ (selecting old IDs for srcPollID)
+// with insertQ, whose parameters are (newID, dstPollID[, newToken], oldID). It
+// returns the old→new ID map.
+func cloneRows(ctx context.Context, tx *sql.Tx, listQ, srcPollID, insertQ, dstPollID string, withToken bool) (map[string]string, error) {
+	rows, err := tx.QueryContext(ctx, listQ, srcPollID)
+	if err != nil {
+		return nil, err
+	}
+	var old []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		old = append(old, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	ids := make(map[string]string, len(old))
+	for _, id := range old {
+		ids[id] = poll.NewID()
+		args := []any{ids[id], dstPollID}
+		if withToken {
+			args = append(args, poll.NewID())
+		}
+		if _, err := tx.ExecContext(ctx, insertQ, append(args, id)...); err != nil {
+			return nil, err
+		}
+	}
+	return ids, nil
+}
+
 // --- participants ---
 
 func (s *Store) CreateParticipant(ctx context.Context, p *poll.Participant) error {

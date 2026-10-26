@@ -266,6 +266,33 @@ func (s *Server) handleAdminAdvance(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, errResp{}) // shouldn't happen
 }
 
+// handleAdminDuplicate copies a poll in its current state under a new code and
+// returns the copy's history row.
+func (s *Server) handleAdminDuplicate(w http.ResponseWriter, r *http.Request) {
+	p, err := s.pollFromCode(r)
+	if err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	cp, err := s.svc.DuplicatePoll(r.Context(), p)
+	if err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	summaries, err := s.svc.ListHistory(r.Context())
+	if err != nil {
+		s.writeErr(w, err)
+		return
+	}
+	for _, sum := range summaries {
+		if sum.Poll.ID == cp.ID {
+			s.writeJSON(w, http.StatusCreated, s.buildAdminPollView(r.Context(), sum))
+			return
+		}
+	}
+	s.writeJSON(w, http.StatusCreated, errResp{}) // shouldn't happen
+}
+
 // RunRetentionSweeper periodically purges closed polls older than the configured
 // retention window. It runs once immediately, then every interval until ctx is
 // cancelled. Started from main only when retention is enabled.

@@ -948,6 +948,24 @@ func (s *Service) ForceAdvance(ctx context.Context, p *Poll) (*Poll, error) {
 	return s.advanceCore(ctx, p, true)
 }
 
+// DuplicatePoll copies a poll in its current state (participants, nominations,
+// votes, round) under a new share code, for admins to experiment on safely.
+func (s *Service) DuplicatePoll(ctx context.Context, src *Poll) (*Poll, error) {
+	code, err := codes.GenerateUnique(s.codeLen, 10, func(c string) (bool, error) {
+		return s.repo.CodeExists(ctx, c)
+	})
+	if err != nil {
+		return nil, err
+	}
+	dst := *src
+	dst.ID, dst.Code, dst.Title = NewID(), code, src.Title+" (copy)"
+	dst.AutoRequestWinner = false
+	if err := s.repo.ClonePoll(ctx, src.ID, &dst); err != nil {
+		return nil, err
+	}
+	return &dst, nil
+}
+
 // DeletePoll permanently removes a poll and all of its data.
 func (s *Service) DeletePoll(ctx context.Context, id string) error {
 	return s.repo.DeletePoll(ctx, id)
