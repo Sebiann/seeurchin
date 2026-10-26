@@ -99,6 +99,7 @@ func (s *Server) Routes() http.Handler {
 				r.Use(s.requireAdmin)
 				r.Get("/polls", s.handleAdminPolls)
 				r.Get("/polls/{code}", s.handleAdminPoll)
+				r.Get("/polls/{code}/ballots", s.handleAdminBallots)
 				r.Delete("/polls/{code}", s.handleAdminDeletePoll)
 				r.Post("/polls/{code}/advance", s.handleAdminAdvance)
 			})

@@ -158,6 +158,16 @@ export interface AdminPollSummary {
 	closed_at?: string; // RFC3339, present once closed
 }
 
+// One participant's ballot in the admin drill-down, mirroring httpapi adminBallotView.
+// value: votes (approval), rank with 1 = first (ranked), or score.
+export interface AdminBallot {
+	participant_id: string;
+	display_name: string;
+	is_host: boolean;
+	has_voted: boolean;
+	selections: { nomination_id: string; title: string; value: number }[];
+}
+
 export interface CreatePollBody {
 	title: string;
 	host_name: string;
