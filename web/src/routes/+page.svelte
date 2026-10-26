@@ -578,6 +578,14 @@
 								</div>
 							</div>
 						{/if}
+						<div class="settings-row">
+							<span><span class="lbl">Vetoes per person</span><span class="sub">A veto knocks a title out</span></span>
+							<div class="stepper">
+								<button type="button" aria-label="Fewer" disabled={num(config.max_vetoes) <= 0} onclick={() => (config.max_vetoes = Math.max(0, num(config.max_vetoes) - 1))}>−</button>
+								<span>{num(config.max_vetoes) === 0 ? 'Off' : num(config.max_vetoes)}</span>
+								<button type="button" aria-label="More" disabled={num(config.max_vetoes) >= 10} onclick={() => (config.max_vetoes = num(config.max_vetoes) + 1)}>+</button>
+							</div>
+						</div>
 						{@render toggle(selfVoteOn, 'Vote for your own picks', selfVoteOn ? '' : 'Keeps it fair', toggleSelfVote)}
 						{@render toggle(resultsLive, 'Show live results', 'Everyone sees the tally while voting', () => (resultsLive = !resultsLive))}
 					</div>

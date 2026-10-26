@@ -16,7 +16,7 @@
 				<div>
 					<div class="flex items-baseline justify-between gap-2 text-sm font-bold">
 						<span class="truncate {winners.has(e.nomination_id) ? 'text-accent-ink' : 'text-muted'}">{e.title}</span>
-						<span class="tabular-nums text-faint">{e.score}</span>
+						<span class="tabular-nums text-faint">{e.vetoed ? 'vetoed' : e.score}</span>
 					</div>
 					<div class="bar mt-1.5 {winners.has(e.nomination_id) ? 'bar-win' : ''}">
 						<i style="width: {(e.score / max) * 100}%"></i>

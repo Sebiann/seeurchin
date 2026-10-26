@@ -249,3 +249,39 @@ func TestRankedBatchEliminatesUnranked(t *testing.T) {
 		t.Fatalf("winners = %v, want an A/B tie", res.WinnerIDs)
 	}
 }
+
+func TestVetoKnocksOutFavoriteInEveryMethod(t *testing.T) {
+	all := []string{"A", "B"}
+	cases := map[Method]map[string]int{
+		Approval{}: {"A": 1},
+		Score{}:    {"A": 5, "B": 1},
+		Ranked{}:   {"A": 1, "B": 2},
+	}
+	for m, fan := range cases {
+		ballots := []Ballot{ballot(fan), ballot(fan), ballot(map[string]int{"A": Veto, "B": 1})}
+		res, err := Tally(m, nil, all, ballots)
+		if err != nil {
+			t.Fatalf("%s: %v", m.Key(), err)
+		}
+		if !reflect.DeepEqual(res.WinnerIDs, []string{"B"}) {
+			t.Errorf("%s: winners = %v, want [B]", m.Key(), res.WinnerIDs)
+		}
+		if last := res.Ranked[len(res.Ranked)-1]; last.NominationID != "A" || !last.Vetoed {
+			t.Errorf("%s: last = %+v, want vetoed A", m.Key(), last)
+		}
+	}
+}
+
+func TestVetoBallotLimit(t *testing.T) {
+	all := []string{"A", "B", "C"}
+	two := ballot(map[string]int{"A": Veto, "B": Veto, "C": 1})
+	if err := ValidateBallot(Approval{}, nil, two, all, nil); err == nil {
+		t.Error("vetoes accepted with vetoes off")
+	}
+	if err := ValidateBallot(Approval{}, cfg(map[string]int{"votes_per_user": 3, "max_vetoes": 1}), two, all, nil); err == nil {
+		t.Error("2 vetoes accepted with max_vetoes=1")
+	}
+	if err := ValidateBallot(Ranked{}, cfg(map[string]int{"max_vetoes": 2}), two, all, nil); err != nil {
+		t.Errorf("2 vetoes rejected with max_vetoes=2: %v", err)
+	}
+}

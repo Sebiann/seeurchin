@@ -989,7 +989,7 @@ func (s *Service) CastVotes(ctx context.Context, p *Poll, participant *Participa
 		}
 	}
 	ballot := voting.Ballot{ParticipantID: participant.ID, Selections: selections}
-	if err := method.ValidateBallot(p.VotingConfig, ballot, allIDs, ownIDs); err != nil {
+	if err := voting.ValidateBallot(method, p.VotingConfig, ballot, allIDs, ownIDs); err != nil {
 		return errBad("%v", err)
 	}
 	votes := make([]Vote, 0, len(selections))
@@ -1032,7 +1032,7 @@ func (s *Service) Results(ctx context.Context, p *Poll) (voting.Results, []Nomin
 	for pid, sel := range byParticipant {
 		ballots = append(ballots, voting.Ballot{ParticipantID: pid, Selections: sel})
 	}
-	res, err := method.Tally(p.VotingConfig, allIDs, ballots)
+	res, err := voting.Tally(method, p.VotingConfig, allIDs, ballots)
 	if err != nil {
 		return voting.Results{}, nil, err
 	}

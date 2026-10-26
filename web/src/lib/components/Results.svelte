@@ -200,7 +200,7 @@
 						<div>
 							<div class="flex items-baseline justify-between gap-2">
 								<span class="min-w-0 truncate text-[15px] font-bold {win ? 'text-accent-ink' : 'text-ink'}">{e.title}</span>
-								<span class="shrink-0 text-sm font-extrabold tabular-nums text-muted">{fmt(e.score)}</span>
+								<span class="shrink-0 text-sm font-extrabold tabular-nums {e.vetoed ? 'text-coral-ink' : 'text-muted'}">{e.vetoed ? 'Vetoed' : fmt(e.score)}</span>
 							</div>
 							<div class="bar mt-1.5 h-2.5 {win ? 'bar-win' : ''}">
 								<i style="width: {Math.max(2, (e.score / max) * 100)}%"></i>

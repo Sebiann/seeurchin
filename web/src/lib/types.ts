@@ -46,6 +46,7 @@ export interface ResultEntry {
 	nomination_id: string;
 	title: string;
 	score: number;
+	vetoed?: boolean;
 	nominators?: string[];
 	request_status?: string; // Seerr status for a winning write-in
 }

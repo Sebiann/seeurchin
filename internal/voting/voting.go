@@ -8,6 +8,7 @@ package voting
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 )
 
@@ -17,6 +18,8 @@ import (
 //	approval: votes placed on that nomination (>= 1)
 //	score:    the score given to that nomination (0..MaxScore)
 //	ranked:   the 1-based rank position (1 = top choice)
+//
+// In every method the value Veto marks a "definitely not" vote instead.
 type Ballot struct {
 	ParticipantID string
 	Selections    map[string]int
@@ -27,6 +30,7 @@ type Result struct {
 	NominationID string  `json:"nomination_id"`
 	Score        float64 `json:"score"`
 	Detail       string  `json:"detail,omitempty"`
+	Vetoed       bool    `json:"vetoed,omitempty"`
 }
 
 // RoundResult records one elimination round (ranked-choice only).
@@ -169,4 +173,86 @@ func rankByScore(scores map[string]float64, allIDs []string) ([]Result, []string
 		}
 	}
 	return results, winners
+}
+
+// Veto is the Selections value for a "definitely not" vote. Any veto knocks the
+// nomination out of the running. Vetoes are method-agnostic: the poll config's
+// max_vetoes (0 = vetoes off) caps them per voter, and ValidateBallot / Tally
+// strip them before the method sees the ballot.
+const Veto = -1
+
+func maxVetoes(raw json.RawMessage) int {
+	var cfg struct {
+		MaxVetoes int `json:"max_vetoes"`
+	}
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &cfg) // a malformed blob is caught by the method's own parse
+	}
+	return max(cfg.MaxVetoes, 0)
+}
+
+// ValidateBallot checks a ballot's vetoes against the config, then hands the
+// remaining selections to the method.
+func ValidateBallot(m Method, raw json.RawMessage, b Ballot, allIDs, ownIDs []string) error {
+	all := toSet(allIDs)
+	rest := make(map[string]int, len(b.Selections))
+	vetoes := 0
+	for id, v := range b.Selections {
+		if v != Veto {
+			rest[id] = v
+			continue
+		}
+		if !all[id] {
+			return fmt.Errorf("unknown nomination %q", id)
+		}
+		vetoes++
+	}
+	if limit := maxVetoes(raw); vetoes > limit {
+		if limit == 0 {
+			return fmt.Errorf("vetoes are not allowed in this poll")
+		}
+		return fmt.Errorf("at most %d veto(es)", limit)
+	}
+	b.Selections = rest
+	return m.ValidateBallot(raw, b, allIDs, ownIDs)
+}
+
+// Tally drops every vetoed nomination before the method counts, then lists the
+// vetoed ones last with Vetoed set.
+func Tally(m Method, raw json.RawMessage, allIDs []string, ballots []Ballot) (Results, error) {
+	vetoed := map[string]bool{}
+	for _, b := range ballots {
+		for id, v := range b.Selections {
+			if v == Veto {
+				vetoed[id] = true
+			}
+		}
+	}
+	// Strip vetoed IDs from every ballot too, so methods never see unknown IDs.
+	clean := make([]Ballot, len(ballots))
+	for i, b := range ballots {
+		sel := make(map[string]int, len(b.Selections))
+		for id, v := range b.Selections {
+			if !vetoed[id] {
+				sel[id] = v
+			}
+		}
+		clean[i] = Ballot{ParticipantID: b.ParticipantID, Selections: sel}
+	}
+	live := make([]string, 0, len(allIDs))
+	for _, id := range allIDs {
+		if !vetoed[id] {
+			live = append(live, id)
+		}
+	}
+	res, err := m.Tally(raw, live, clean)
+	if err != nil {
+		return res, err
+	}
+	for _, id := range allIDs {
+		if vetoed[id] {
+			res.Ranked = append(res.Ranked, Result{NominationID: id, Vetoed: true})
+		}
+	}
+	return res, nil
 }

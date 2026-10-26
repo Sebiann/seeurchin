@@ -25,11 +25,16 @@
 	const noms = $derived(poll.nominations);
 	const isHost = $derived(poll.me?.is_host ?? false);
 
+	// A saved selection of -1 is a veto (voting.Veto); the rest are votes.
+	const saved = Object.entries(poll.me?.my_selections ?? {});
+	const maxVetoes = Number(cfg.max_vetoes ?? 0);
+	let vetoes = $state<string[]>(saved.filter(([, v]) => v === -1).map(([id]) => id));
 	// approval / score selections; initialized once from any existing ballot.
-	let selections = $state<Record<string, number>>({ ...(poll.me?.my_selections ?? {}) });
+	let selections = $state<Record<string, number>>(Object.fromEntries(saved.filter(([, v]) => v > 0)));
 	// ranked uses an ordered list as the source of truth.
 	let ranking = $state<string[]>(
-		Object.entries(poll.me?.my_selections ?? {})
+		saved
+			.filter(([, v]) => v > 0)
 			.sort((a, b) => a[1] - b[1])
 			.map(([id]) => id)
 	);
@@ -76,7 +81,7 @@
 	// --- ranked ---
 	const maxRanked = Number(cfg.max_ranked ?? 0);
 	const unranked = $derived(
-		noms.filter((n) => !ranking.includes(n.id) && !selfBlocked(n.mine_nominated))
+		noms.filter((n) => !ranking.includes(n.id) && !vetoes.includes(n.id) && !selfBlocked(n.mine_nominated))
 	);
 	function addRank(id: string) {
 		if (maxRanked > 0 && ranking.length >= maxRanked) return;
@@ -92,6 +97,16 @@
 		[next[i], next[j]] = [next[j], next[i]];
 		ranking = next;
 	}
+	function toggleVeto(id: string) {
+		if (vetoes.includes(id)) {
+			vetoes = vetoes.filter((x) => x !== id);
+		} else if (vetoes.length < maxVetoes) {
+			vetoes = [...vetoes, id];
+			delete selections[id];
+			removeRank(id);
+		}
+	}
+
 	function titleOf(id: string) {
 		return noms.find((n) => n.id === id)?.title ?? '';
 	}
@@ -106,6 +121,7 @@
 			} else {
 				for (const [id, v] of Object.entries(selections)) if (v > 0) sel[id] = v;
 			}
+			for (const id of vetoes) sel[id] = -1;
 			update(await api.vote(code, sel));
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'could not submit vote';
@@ -228,6 +244,21 @@
 					</div>
 				{/if}
 			{/each}
+		</div>
+	{/if}
+
+	{#if maxVetoes > 0}
+		<div class="mt-6">
+			<div class="flex flex-wrap items-baseline justify-between gap-x-3">
+				<h3 class="text-[15px] font-extrabold text-ink">Definitely not</h3>
+				<span class="text-sm font-semibold text-muted">{maxVetoes - vetoes.length} of {maxVetoes} veto{maxVetoes === 1 ? '' : 'es'} left · knocks a title out</span>
+			</div>
+			<div class="mt-2 flex flex-wrap gap-2">
+				{#each noms as n (n.id)}
+					{@const on = vetoes.includes(n.id)}
+					<button onclick={() => toggleVeto(n.id)} aria-pressed={on} disabled={!on && vetoes.length >= maxVetoes} class="chip {on ? 'border-coral bg-coral/10 text-coral-ink line-through' : ''} disabled:opacity-40">{n.title}</button>
+				{/each}
+			</div>
 		</div>
 	{/if}
 

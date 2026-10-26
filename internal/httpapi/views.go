@@ -102,6 +102,7 @@ type resultEntry struct {
 	NominationID  string   `json:"nomination_id"`
 	Title         string   `json:"title"`
 	Score         float64  `json:"score"`
+	Vetoed        bool     `json:"vetoed,omitempty"`
 	Nominators    []string `json:"nominators,omitempty"`     // display names, when the poll reveals them
 	RequestStatus string   `json:"request_status,omitempty"` // Seerr status for a winning write-in
 }
@@ -337,7 +338,7 @@ func (s *Server) computeResults(ctx context.Context, p *poll.Poll, noms []poll.N
 	score := make(map[string]float64, len(res.Ranked))
 	for _, r := range res.Ranked {
 		score[r.NominationID] = r.Score
-		e := resultEntry{NominationID: r.NominationID, Title: title[r.NominationID], Score: r.Score}
+		e := resultEntry{NominationID: r.NominationID, Title: title[r.NominationID], Score: r.Score, Vetoed: r.Vetoed}
 		if nominators != nil && (p.RevealScope == poll.RevealAll || winnerSet[r.NominationID]) {
 			e.Nominators = nominators[r.NominationID]
 		}

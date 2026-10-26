@@ -95,6 +95,9 @@ Each method enforces its own ballot rules server-side (vote budgets, per-option
 caps, and whether you may vote for a title you nominated). Voting for your own
 picks can be open, disabled, or capped via `max_self_votes` (`<0` unlimited,
 `0` none, `N` at most N — when set it overrides the legacy `allow_self_vote`).
+Any voting method can also allow **vetoes** via `max_vetoes` (default `0` =
+off): each voter may mark up to N titles "definitely not", and a single veto
+knocks that title out of the running no matter how many votes it has.
 Nomination rules (`min` / `max` / `required`) are enforced independently of the
 voting method.
 
